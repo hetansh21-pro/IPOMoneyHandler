@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">IPO Money Handler</string>
+    <string name="title_activity_main">IPO Money Handler</string>
+    <string name="package_name">com.ipomoneyhandler.app</string>
+    <string name="custom_url_scheme">com.ipomoneyhandler.app</string>
+</resources>
