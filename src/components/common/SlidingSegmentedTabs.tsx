@@ -17,7 +17,7 @@ interface SlidingSegmentedTabsProps<T extends string = string> {
   className?: string;
   variant?: 'equal' | 'scrollable';
   size?: 'sm' | 'md' | 'lg';
-  pillVariant?: 'card' | 'solid';
+  pillVariant?: 'card' | 'solid' | 'underline';
   activeColor?: 'emerald' | 'indigo' | 'purple';
 }
 
@@ -71,6 +71,8 @@ export function SlidingSegmentedTabs<T extends string = string>({
     return () => window.removeEventListener('resize', updateScrollPill);
   }, [activeId, tabs, variant]);
 
+  const isUnderline = pillVariant === 'underline';
+
   const activePillBg =
     pillVariant === 'card'
       ? 'bg-white dark:bg-slate-800 shadow-xs border border-slate-200/80 dark:border-slate-700/80'
@@ -82,25 +84,49 @@ export function SlidingSegmentedTabs<T extends string = string>({
 
   const sizeClasses =
     size === 'sm'
-      ? 'py-1 px-2.5 text-[11px]'
+      ? isUnderline ? 'py-1.5 px-2 text-[11px]' : 'py-1 px-2.5 text-[11px]'
       : size === 'lg'
-      ? 'py-2.5 px-4 text-sm'
-      : 'py-1.5 px-3 text-xs';
+      ? isUnderline ? 'py-2.5 px-4 text-sm' : 'py-2.5 px-4 text-sm'
+      : isUnderline ? 'py-2 px-3 text-xs' : 'py-1.5 px-3 text-xs';
 
   const widthPct = tabs.length > 0 ? 100 / tabs.length : 100;
-  const leftPct = activeIndex * widthPct;
 
   return (
     <div
       ref={containerRef}
-      className={`relative flex items-center p-0.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800 select-none ${
+      className={`relative flex items-center select-none ${
+        isUnderline
+          ? 'bg-transparent border-b border-slate-200/60 dark:border-slate-800 p-0'
+          : 'p-0.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800'
+      } ${
         variant === 'scrollable'
           ? 'overflow-x-auto scrollbar-none space-x-1'
           : 'w-full justify-between'
       } ${className}`}
     >
-      {/* Smooth Sliding Pill Indicator */}
-      {variant === 'equal' ? (
+      {/* Sliding Indicator */}
+      {isUnderline ? (
+        variant === 'equal' ? (
+          <div
+            className="absolute bottom-0 left-0 h-[2.5px] px-1 pointer-events-none transition-transform duration-250 ease-[cubic-bezier(0.25,1,0.5,1)] will-change-transform"
+            style={{
+              width: `${widthPct}%`,
+              transform: `translate3d(${activeIndex * 100}%, 0, 0)`,
+            }}
+          >
+            <div className="w-full h-full rounded-full bg-emerald-600 dark:bg-emerald-400 shadow-[0_1px_6px_rgba(5,150,105,0.4)]" />
+          </div>
+        ) : (
+          <div
+            className="absolute bottom-0 h-[2.5px] rounded-full bg-emerald-600 dark:bg-emerald-400 transition-all duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)] will-change-transform pointer-events-none shadow-[0_1px_6px_rgba(5,150,105,0.4)]"
+            style={{
+              left: `${scrollPillStyle.left}px`,
+              width: `${scrollPillStyle.width}px`,
+              opacity: scrollPillStyle.width > 0 ? 1 : 0,
+            }}
+          />
+        )
+      ) : variant === 'equal' ? (
         <div
           className="absolute inset-y-0 left-0 p-0.5 pointer-events-none transition-transform duration-250 ease-[cubic-bezier(0.25,1,0.5,1)] will-change-transform"
           style={{
@@ -133,14 +159,18 @@ export function SlidingSegmentedTabs<T extends string = string>({
             }}
             type="button"
             onClick={() => onChange(tab.id)}
-            className={`relative z-10 flex items-center justify-center font-bold whitespace-nowrap rounded-lg transition-colors duration-200 cursor-pointer touch-manipulation active:scale-95 ${
+            className={`relative z-10 flex items-center justify-center font-bold whitespace-nowrap transition-colors duration-200 cursor-pointer touch-manipulation active:scale-95 ${
+              isUnderline ? 'rounded-none' : 'rounded-lg'
+            } ${
               variant === 'equal' ? 'flex-1' : 'shrink-0'
             } ${sizeClasses} ${
               isActive
-                ? pillVariant === 'solid'
+                ? isUnderline
+                  ? 'text-emerald-600 dark:text-emerald-400 font-black'
+                  : pillVariant === 'solid'
                   ? 'text-white font-extrabold drop-shadow-xs'
                   : 'text-emerald-600 dark:text-emerald-400 font-extrabold'
-                : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                : 'text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
             }`}
           >
             {Icon && (
@@ -155,10 +185,12 @@ export function SlidingSegmentedTabs<T extends string = string>({
               <span
                 className={`ml-1.5 px-1.5 py-0.2 rounded-md text-[10px] font-extrabold transition-colors ${
                   isActive
-                    ? pillVariant === 'solid'
+                    ? isUnderline
+                      ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200/80 dark:border-emerald-800/80'
+                      : pillVariant === 'solid'
                       ? 'bg-white/25 text-white'
                       : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400'
-                    : 'bg-slate-200/80 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+                    : 'bg-slate-200/60 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
                 }`}
               >
                 {tab.count}

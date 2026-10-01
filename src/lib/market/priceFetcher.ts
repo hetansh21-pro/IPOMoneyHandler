@@ -310,7 +310,7 @@ export const INDIAN_STOCK_ALIASES: Record<string, string> = {
   'JUBILANT FOODWORKS': 'JUBLFOOD.NS',
   DEVYANI: 'DEVYANI.NS',
 
-  // New-Age / Tech Consumer & Exchanges
+  // New-Age / Tech Consumer & Exchanges & Recent IPOs
   ZOMATO: 'ZOMATO.NS',
   SWIGGY: 'SWIGGY.NS',
   PAYTM: 'PAYTM.NS',
@@ -347,6 +347,21 @@ export const INDIAN_STOCK_ALIASES: Record<string, string> = {
   BANSALWIRE: 'BANSALWIRE.NS',
   KROSS: 'KROSS.NS',
   TOLINS: 'TOLINS.NS',
+  WAAREE: 'WAAREE.NS',
+  'WAAREE ENERGIES': 'WAAREE.NS',
+  TATATECH: 'TATATECH.NS',
+  'TATA TECH': 'TATATECH.NS',
+  'TATA TECHNOLOGIES': 'TATATECH.NS',
+  SAGILITY: 'SAGILITY.NS',
+  'SAGILITY INDIA': 'SAGILITY.NS',
+  ACME: 'ACME.NS',
+  'ACME SOLAR': 'ACME.NS',
+  AFCONS: 'AFCONS.NS',
+  'AFCONS INFRA': 'AFCONS.NS',
+  'AFCONS INFRASTRUCTURE': 'AFCONS.NS',
+  NTPCGREEN: 'NTPCGREEN.NS',
+  'NTPC GREEN ENERGY': 'NTPCGREEN.NS',
+  RENTOMOJO: 'RENTOMOJO.NS',
 };
 
 // Canonical official corporate name mapping
@@ -484,6 +499,13 @@ export const CANONICAL_COMPANY_NAMES: Record<string, string> = {
   ECOS: 'ECOS (India) Mobility & Hosp Ltd',
   ORIENTTECH: 'Orient Technologies Limited',
   INTERARCH: 'Interarch Building Products Ltd',
+  WAAREE: 'Waaree Energies Limited',
+  TATATECH: 'Tata Technologies Limited',
+  SAGILITY: 'Sagility India Limited',
+  ACME: 'ACME Solar Holdings Limited',
+  AFCONS: 'Afcons Infrastructure Limited',
+  NTPCGREEN: 'NTPC Green Energy Limited',
+  RENTOMOJO: 'Rentomojo (Edunetwork Pvt Ltd)',
 };
 
 export function resolveStockTicker(input: string): string {
@@ -501,12 +523,73 @@ export function resolveStockTicker(input: string): string {
   return `${stripped}.NS`;
 }
 
+/**
+ * Fast Levenshtein similarity (0.0 to 1.0) for fuzzy matching stock OCR tokens
+ */
+export function calculateStringSimilarity(s1: string, s2: string): number {
+  const str1 = s1.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const str2 = s2.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (str1 === str2) return 1.0;
+  if (!str1 || !str2) return 0.0;
+  if (str1.length >= 4 && str2.length >= 4 && (str1.includes(str2) || str2.includes(str1))) return 0.88;
+
+  const track = Array(str2.length + 1)
+    .fill(null)
+    .map(() => Array(str1.length + 1).fill(null));
+
+  for (let i = 0; i <= str1.length; i += 1) track[0][i] = i;
+  for (let j = 0; j <= str2.length; j += 1) track[j][0] = j;
+
+  for (let j = 1; j <= str2.length; j += 1) {
+    for (let i = 1; i <= str1.length; i += 1) {
+      const indicator = str1[i - 1] === str2[j - 1] ? 0 : 1;
+      track[j][i] = Math.min(
+        track[j][i - 1] + 1,
+        track[j - 1][i] + 1,
+        track[j - 1][i - 1] + indicator
+      );
+    }
+  }
+
+  const distance = track[str2.length][str1.length];
+  const maxLen = Math.max(str1.length, str2.length);
+  return (maxLen - distance) / maxLen;
+}
+
 export function resolveStockInfo(input: string): { symbol: string; name: string; isKnown: boolean } {
   const clean = input.trim().toUpperCase();
   const stripped = clean.replace(/[^A-Z0-9&]/g, '');
 
   let targetTicker = INDIAN_STOCK_ALIASES[clean] || INDIAN_STOCK_ALIASES[stripped];
   let isKnown = !!targetTicker;
+
+  // 1. Direct Canonical Name Match
+  if (!targetTicker && CANONICAL_COMPANY_NAMES[stripped]) {
+    targetTicker = `${stripped}.NS`;
+    isKnown = true;
+  }
+
+  // 2. Fuzzy Token Match against Known Indian Stocks Registry (autocorrects OCR typos)
+  if (!targetTicker && stripped.length >= 3) {
+    let bestMatchKey = '';
+    let bestScore = 0;
+
+    for (const aliasKey of Object.keys(INDIAN_STOCK_ALIASES)) {
+      // Only compare comparable length words to maintain high speed
+      if (Math.abs(aliasKey.length - stripped.length) <= 3) {
+        const score = calculateStringSimilarity(stripped, aliasKey);
+        if (score > bestScore && score >= 0.82) {
+          bestScore = score;
+          bestMatchKey = aliasKey;
+        }
+      }
+    }
+
+    if (bestMatchKey && bestScore >= 0.82) {
+      targetTicker = INDIAN_STOCK_ALIASES[bestMatchKey];
+      isKnown = true;
+    }
+  }
 
   if (!targetTicker) {
     if (clean.endsWith('.NS') || clean.endsWith('.BO')) {

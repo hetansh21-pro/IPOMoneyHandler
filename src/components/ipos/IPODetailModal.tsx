@@ -44,14 +44,41 @@ export function IPODetailModal({ ipo, isOpen, onClose, onApply }: IPODetailModal
   const gmpPercent = ipo.gmp ? ((ipo.gmp / ipo.priceHigh) * 100).toFixed(1) : null;
   const estListingPrice = ipo.gmp ? ipo.priceHigh + ipo.gmp : null;
 
+  const actionFooter = (
+    <button
+      type="button"
+      onClick={() => {
+        onClose();
+        onApply(ipo);
+      }}
+      className={`w-full py-3.5 rounded-xl font-black text-sm text-white shadow-lg active:scale-[0.99] transition-all flex items-center justify-center space-x-2 cursor-pointer ${
+        ipo.status === 'OPEN'
+          ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/25'
+          : ipo.status === 'UPCOMING'
+          ? 'bg-blue-600 hover:bg-blue-500 shadow-blue-600/25'
+          : 'bg-slate-800 hover:bg-slate-700 shadow-slate-800/25'
+      }`}
+    >
+      <span>
+        {ipo.status === 'OPEN'
+          ? `Apply with Virtual Ledger (${formatINR(minInvestment)})`
+          : ipo.status === 'UPCOMING'
+          ? 'Pre-Apply & Block Funds'
+          : 'Record Past Application'}
+      </span>
+      <ArrowRight className="w-4 h-4" />
+    </button>
+  );
+
   return (
     <BottomSheet
       isOpen={isOpen}
       onClose={onClose}
       title={ipo.companyName}
       subtitle={`${ipo.symbol} • ${isSME ? 'SME Public Issue' : 'Mainboard Public Issue'}`}
+      footer={actionFooter}
     >
-      <div className="space-y-4 pb-4">
+      <div className="space-y-4">
         {/* Top Status & Timing Banner */}
         <div className="p-3.5 rounded-2xl bg-gradient-to-br from-slate-50 to-slate-100/70 dark:from-slate-900 dark:to-slate-900/80 border border-slate-200/90 dark:border-slate-800/90 flex items-center justify-between gap-3">
           <div className="flex items-center space-x-2.5">
@@ -268,30 +295,6 @@ export function IPODetailModal({ ipo, isOpen, onClose, onApply }: IPODetailModal
             )}
           </div>
         </div>
-
-        {/* Action Button */}
-        <button
-          onClick={() => {
-            onClose();
-            onApply(ipo);
-          }}
-          className={`w-full py-3.5 rounded-xl font-black text-sm text-white shadow-lg active:scale-[0.99] transition-all flex items-center justify-center space-x-2 cursor-pointer ${
-            ipo.status === 'OPEN'
-              ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/25'
-              : ipo.status === 'UPCOMING'
-              ? 'bg-blue-600 hover:bg-blue-500 shadow-blue-600/25'
-              : 'bg-slate-800 hover:bg-slate-700 shadow-slate-800/25'
-          }`}
-        >
-          <span>
-            {ipo.status === 'OPEN'
-              ? `Apply with Virtual Ledger (${formatINR(minInvestment)})`
-              : ipo.status === 'UPCOMING'
-              ? 'Pre-Apply & Block Funds'
-              : 'Record Past Application'}
-          </span>
-          <ArrowRight className="w-4 h-4" />
-        </button>
       </div>
     </BottomSheet>
   );

@@ -477,56 +477,87 @@ export function MoreScreen() {
               </div>
             </div>
 
-            {/* 2-Way Underline Selector (Light / Dark) without outer box */}
+            {/* 2-Way Underline Selector (Light / Dark) with Sliding Green Underline */}
             <div className="relative flex items-center justify-around pt-1 pb-1.5 select-none">
+              {/* Sliding Indicator */}
+              <div
+                className="absolute bottom-0 left-0 h-[2.5px] w-1/2 flex items-center justify-center transition-transform duration-300 ease-[cubic-bezier(0.2,0.9,0.2,1)] will-change-transform pointer-events-none"
+                style={{
+                  transform:
+                    themeMode === 'dark' ||
+                    (themeMode === 'system' &&
+                      typeof window !== 'undefined' &&
+                      window.matchMedia &&
+                      window.matchMedia('(prefers-color-scheme: dark)').matches)
+                      ? 'translateX(100%)'
+                      : 'translateX(0%)',
+                }}
+              >
+                <span className="w-16 h-full rounded-full bg-emerald-600 dark:bg-emerald-400 shadow-[0_1px_4px_rgba(5,150,105,0.4)]" />
+              </div>
+
               <button
                 type="button"
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
+                onClick={() => {
                   setThemeMode('light');
+                  try {
+                    navigator?.vibrate?.(10);
+                  } catch {}
                 }}
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setThemeMode('light');
-                }}
-                className={`relative flex-1 flex items-center justify-center space-x-2 py-2 text-xs font-black transition-colors cursor-pointer touch-manipulation active:scale-95 ${
-                  themeMode === 'light'
-                    ? 'text-slate-950 dark:text-white'
-                    : 'text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                className={`relative flex-1 flex items-center justify-center space-x-2 py-2 text-xs transition-colors duration-200 cursor-pointer touch-manipulation active:scale-95 ${
+                  themeMode === 'light' ||
+                  (themeMode === 'system' &&
+                    typeof window !== 'undefined' &&
+                    window.matchMedia &&
+                    !window.matchMedia('(prefers-color-scheme: dark)').matches)
+                    ? 'text-emerald-600 dark:text-emerald-400 font-black'
+                    : 'text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 font-bold'
                 }`}
               >
-                <Sun className={`w-4 h-4 ${themeMode === 'light' ? 'text-amber-500 stroke-[2.5]' : 'text-slate-400'}`} />
+                <Sun
+                  className={`w-4 h-4 ${
+                    themeMode === 'light' ||
+                    (themeMode === 'system' &&
+                      typeof window !== 'undefined' &&
+                      window.matchMedia &&
+                      !window.matchMedia('(prefers-color-scheme: dark)').matches)
+                      ? 'text-amber-500 stroke-[2.5]'
+                      : 'text-slate-400'
+                  }`}
+                />
                 <span>Light</span>
-                {themeMode === 'light' && (
-                  <span className="absolute bottom-0 inset-x-6 h-[3px] rounded-full bg-slate-900 dark:bg-white shadow-xs transition-all duration-300" />
-                )}
               </button>
 
               <button
                 type="button"
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
+                onClick={() => {
                   setThemeMode('dark');
+                  try {
+                    navigator?.vibrate?.(10);
+                  } catch {}
                 }}
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setThemeMode('dark');
-                }}
-                className={`relative flex-1 flex items-center justify-center space-x-2 py-2 text-xs font-black transition-colors cursor-pointer touch-manipulation active:scale-95 ${
-                  themeMode === 'dark' || (themeMode === 'system' && typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
-                    ? 'text-slate-950 dark:text-white'
-                    : 'text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                className={`relative flex-1 flex items-center justify-center space-x-2 py-2 text-xs transition-colors duration-200 cursor-pointer touch-manipulation active:scale-95 ${
+                  themeMode === 'dark' ||
+                  (themeMode === 'system' &&
+                    typeof window !== 'undefined' &&
+                    window.matchMedia &&
+                    window.matchMedia('(prefers-color-scheme: dark)').matches)
+                    ? 'text-emerald-600 dark:text-emerald-400 font-black'
+                    : 'text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 font-bold'
                 }`}
               >
-                <Moon className={`w-4 h-4 ${themeMode === 'dark' ? 'text-indigo-400 stroke-[2.5]' : 'text-slate-400'}`} />
+                <Moon
+                  className={`w-4 h-4 ${
+                    themeMode === 'dark' ||
+                    (themeMode === 'system' &&
+                      typeof window !== 'undefined' &&
+                      window.matchMedia &&
+                      window.matchMedia('(prefers-color-scheme: dark)').matches)
+                      ? 'text-indigo-400 stroke-[2.5]'
+                      : 'text-slate-400'
+                  }`}
+                />
                 <span>Dark</span>
-                {(themeMode === 'dark' || (themeMode === 'system' && typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)) && (
-                  <span className="absolute bottom-0 inset-x-6 h-[3px] rounded-full bg-slate-900 dark:bg-white shadow-xs transition-all duration-300" />
-                )}
               </button>
             </div>
           </div>

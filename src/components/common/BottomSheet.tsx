@@ -11,6 +11,7 @@ interface BottomSheetProps {
   title?: string;
   subtitle?: string;
   children: React.ReactNode;
+  footer?: React.ReactNode;
   maxHeight?: string;
   defaultExpanded?: boolean;
 }
@@ -21,6 +22,7 @@ export function BottomSheet({
   title,
   subtitle,
   children,
+  footer,
   maxHeight = 'max-h-[85vh]',
 }: BottomSheetProps) {
   const [mounted, setMounted] = useState(false);
@@ -212,10 +214,17 @@ export function BottomSheet({
         {/* Content Body */}
         <div
           ref={scrollRef}
-          className="p-5 pb-24 overflow-y-auto flex-1 overscroll-contain text-slate-900 dark:text-white"
+          className={`p-5 ${footer ? 'pb-6' : 'pb-24'} overflow-y-auto flex-1 overscroll-contain text-slate-900 dark:text-white`}
         >
           {children}
         </div>
+
+        {/* Pinned / Fixed Footer */}
+        {footer && (
+          <div className="p-4 border-t border-slate-100 dark:border-white/10 bg-white/95 dark:bg-[#0b1120]/95 backdrop-blur-md shrink-0 sticky bottom-0 z-10 shadow-[0_-4px_16px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_16px_rgba(0,0,0,0.3)]">
+            {footer}
+          </div>
+        )}
       </div>
     </div>
   );

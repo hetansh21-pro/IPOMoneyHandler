@@ -308,7 +308,7 @@ export function HomeScreen() {
             Money Distribution
           </span>
           <span className="text-xs font-bold text-[#94a3b8] dark:text-slate-400">
-            {accounts.length} Accounts
+            {filteredAccounts.length} Accounts
           </span>
         </div>
         <SegmentedBar segments={segments} total={summary.totalTrackedMoney} />
@@ -332,7 +332,7 @@ export function HomeScreen() {
           </button>
         </div>
 
-        {accounts.length === 0 ? (
+        {filteredAccounts.length === 0 ? (
           <div
             onClick={() => setQuickActionOpen(true, 'add_account')}
             className="p-5 rounded-2xl bg-white dark:bg-[#0f172a] border border-dashed border-slate-300 dark:border-slate-700 text-center space-y-2 cursor-pointer hover:border-emerald-500 hover:bg-emerald-50/20 dark:hover:bg-emerald-950/20 transition-all shadow-[0_1px_3px_rgba(0,0,0,0.02)]"
@@ -342,12 +342,12 @@ export function HomeScreen() {
             </div>
             <div>
               <p className="text-xs font-bold text-slate-800 dark:text-slate-100">No Accounts Added Yet</p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Tap here to add your first Bank or Demat account</p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Tap here to add an account for this profile</p>
             </div>
           </div>
         ) : (
           <div className="space-y-2">
-            {accounts.slice(0, 3).map((acc) => {
+            {filteredAccounts.slice(0, 3).map((acc) => {
               const avail = getAccountAvailableBalance(acc, applications, allocations);
               return (
                 <div

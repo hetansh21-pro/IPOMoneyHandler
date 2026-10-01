@@ -63,6 +63,7 @@ export function HoldingPortfolioScreen() {
   // Modal states
   const [isAddingStock, setIsAddingStock] = useState(false);
   const [editingInvestment, setEditingInvestment] = useState<Investment | null>(null);
+  const [selectedInvestmentDetail, setSelectedInvestmentDetail] = useState<Investment | null>(null);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [stockToDelete, setStockToDelete] = useState<Investment | null>(null);
   const [isClearAllDialogOpen, setIsClearAllDialogOpen] = useState(false);
@@ -120,6 +121,11 @@ export function HoldingPortfolioScreen() {
 
   useBackHandler(!!editingInvestment, () => {
     setEditingInvestment(null);
+    return true;
+  });
+
+  useBackHandler(!!selectedInvestmentDetail, () => {
+    setSelectedInvestmentDetail(null);
     return true;
   });
 
@@ -299,6 +305,24 @@ export function HoldingPortfolioScreen() {
     });
 
     setEditingInvestment(null);
+  };
+
+  const handleOpenBuyMore = (inv: Investment) => {
+    setNewSymbol(inv.symbol);
+    setNewName(inv.name || inv.symbol);
+    setNewQty('1');
+    setNewAvgPrice(inv.avgPrice.toString());
+    setNewCurPrice((inv.currentPrice || inv.avgPrice).toString());
+    setNewAccountId(inv.accountId || (dematAccounts[0]?.id || ''));
+    setSelectedInvestmentDetail(null);
+    setIsAddingStock(true);
+  };
+
+  const handleOpenSellFromDetail = (inv: Investment) => {
+    setSelectedInvestmentDetail(null);
+    setTimeout(() => {
+      handleOpenSell(inv);
+    }, 150);
   };
 
   const handleOpenSell = (inv: Investment) => {
@@ -510,87 +534,76 @@ export function HoldingPortfolioScreen() {
         </button>
       </div>
 
-      {/* Broker / Demat Account Filter Tabs */}
-      {dematAccounts.length > 0 && (
-        <div className="flex items-center space-x-1.5 overflow-x-auto no-scrollbar py-1">
-          <button
-            onClick={() => setSelectedBrokerFilter('ALL')}
-            className={`px-3.5 py-1.5 rounded-full text-xs font-bold shrink-0 transition-all cursor-pointer ${
-              selectedBrokerFilter === 'ALL'
-                ? 'bg-indigo-600 text-white shadow-xs'
-                : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50'
-            }`}
-          >
-            All Accounts ({investments.length})
-          </button>
-
-          {dematAccounts.map((acc) => {
-            const accCount = investments.filter((i) => i.accountId === acc.id).length;
-            const isSelected = selectedBrokerFilter === acc.id;
-            return (
-              <button
-                key={acc.id}
-                onClick={() => setSelectedBrokerFilter(acc.id)}
-                className={`px-3.5 py-1.5 rounded-full text-xs font-bold shrink-0 flex items-center space-x-1.5 transition-all cursor-pointer ${
-                  isSelected
-                    ? 'bg-indigo-600 text-white shadow-xs'
-                    : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50'
-                }`}
-              >
-                <span>{acc.name}</span>
-                <span
-                  className={`text-[10px] px-1.5 py-0.2 rounded-md ${
-                    isSelected
-                      ? 'bg-indigo-700 text-indigo-100'
-                      : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
-                  }`}
-                >
-                  {accCount}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Search & Sort Toolbar with iOS Glass */}
-      {investments.length > 0 && (
-        <div className="flex items-center space-x-2">
-          <div className="relative flex-1">
-            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Search stock by name or symbol..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 rounded-2xl ios-glass-pill text-slate-900 dark:text-slate-100 text-xs font-semibold placeholder:text-slate-400 focus:outline-hidden focus:border-indigo-500 shadow-xs"
-            />
-          </div>
-
-          <div className="w-36 shrink-0">
-            <CustomDropdown
-              value={sortBy}
-              onChange={(val) => setSortBy(val as any)}
-              themeVariant="indigo"
-              size="sm"
-              options={[
-                { value: 'value', label: 'Sort: Value' },
-                { value: 'pnl', label: 'Sort: Gain/Loss' },
-                { value: 'invested', label: 'Sort: Invested' },
-                { value: 'name', label: 'Sort: A-Z' },
+      {/* Quick Filter & Search Bar with iOS Frosted Glass */}
+      <div className="space-y-2.5 ios-glass-card p-3 rounded-2xl">
+        {/* Row 1: Broker Filter Tabs with Green Underline */}
+        {dematAccounts.length > 0 && (
+          <div className="px-1">
+            <SlidingSegmentedTabs
+              tabs={[
+                { id: 'ALL', label: 'All Accounts', count: investments.length },
+                ...dematAccounts.map((acc) => ({
+                  id: acc.id,
+                  label: acc.name,
+                  count: investments.filter((i) => i.accountId === acc.id).length,
+                })),
               ]}
+              activeId={selectedBrokerFilter}
+              onChange={(filterId) => setSelectedBrokerFilter(filterId)}
+              size="sm"
+              variant="scrollable"
+              pillVariant="underline"
             />
           </div>
+        )}
 
-          <button
-            onClick={() => setIsClearAllDialogOpen(true)}
-            className="p-2 rounded-2xl ios-glass-pill text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer shadow-xs"
-            title="Clear all holdings"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
-        </div>
-      )}
+        {/* Row 2: Search & Sort Toolbar Underneath */}
+        {investments.length > 0 && (
+          <div className="flex items-center gap-2 pt-1.5 border-t border-slate-100 dark:border-slate-800/80">
+            <div className="relative flex-1">
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search stock by name or symbol..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-8 pr-7 py-1.5 rounded-xl bg-slate-50/90 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800/80 text-slate-900 dark:text-slate-100 placeholder-slate-400 text-[11px] focus:outline-none focus:border-emerald-600 transition-all font-medium"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                >
+                  <span className="text-xs">✕</span>
+                </button>
+              )}
+            </div>
+
+            <div className="w-32 shrink-0">
+              <CustomDropdown
+                value={sortBy}
+                onChange={(val) => setSortBy(val as any)}
+                themeVariant="emerald"
+                size="sm"
+                options={[
+                  { value: 'value', label: 'Sort: Value' },
+                  { value: 'pnl', label: 'Sort: Gain/Loss' },
+                  { value: 'invested', label: 'Sort: Invested' },
+                  { value: 'name', label: 'Sort: A-Z' },
+                ]}
+              />
+            </div>
+
+            <button
+              onClick={() => setIsClearAllDialogOpen(true)}
+              className="p-1.5 rounded-xl bg-slate-50/90 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800/80 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+              title="Clear all holdings"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* Holdings List */}
       {filteredInvestments.length === 0 ? (
@@ -642,126 +655,61 @@ export function HoldingPortfolioScreen() {
               <div
                 key={inv.id}
                 style={{ animationDelay: `${Math.min(index * 30, 150)}ms` }}
-                className="animate-card-item p-4 rounded-[28px] ios-glass-card space-y-3.5 transition-all hover:border-indigo-400/40 dark:hover:border-indigo-500/40 shadow-[0_8px_30px_rgba(0,0,0,0.04)] dark:shadow-[0_8px_30px_rgba(0,0,0,0.3)] relative overflow-hidden group"
+                onClick={() => setSelectedInvestmentDetail(inv)}
+                className="animate-card-item p-3.5 rounded-2xl bg-white/90 dark:bg-slate-900/85 border border-slate-200/80 dark:border-slate-800 shadow-sm hover:border-emerald-500/40 dark:hover:border-emerald-500/40 transition-all cursor-pointer active:scale-[0.99] touch-manipulation flex items-center justify-between group"
               >
-                {/* Header: Symbol + Account Pill + Actions */}
-                <div className="flex items-start justify-between">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                      <span className="text-base font-black text-slate-900 dark:text-slate-100 tracking-tight">
-                        {inv.symbol}
+                {/* Left: Symbol, Company name, Demat pill, Qty • Avg */}
+                <div className="min-w-0 flex-1 pr-3">
+                  <div className="flex items-center space-x-2 flex-wrap gap-y-0.5">
+                    <span className="text-sm font-black text-slate-900 dark:text-slate-100 tracking-tight">
+                      {inv.symbol}
+                    </span>
+                    {linkedAccount && (
+                      <span className="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200/60 dark:border-slate-700/60 text-slate-600 dark:text-slate-300 text-[9px] font-bold">
+                        {linkedAccount.name}
                       </span>
-                      {linkedAccount && (
-                        <span className="px-2.5 py-0.5 rounded-full bg-slate-100/90 dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700/80 text-slate-600 dark:text-slate-300 text-[10px] font-bold">
-                          {linkedAccount.name}
-                        </span>
-                      )}
-                      {inv.isIpoAllotted && (
-                        <span className="px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-[9px] font-black uppercase">
-                          IPO Allotted
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 font-medium truncate mt-0.5 max-w-[220px]">
-                      {inv.name || inv.symbol}
-                    </p>
+                    )}
+                    {inv.isIpoAllotted && (
+                      <span className="px-1.5 py-0.2 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-[8px] font-black uppercase">
+                        IPO
+                      </span>
+                    )}
                   </div>
 
-                  {/* Edit & Delete Action Buttons */}
-                  <div className="flex items-center space-x-1.5 shrink-0">
-                    <button
-                      onClick={() => handleOpenEdit(inv)}
-                      className="w-7 h-7 rounded-full bg-slate-100/80 dark:bg-slate-800/80 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 border border-slate-200/60 dark:border-slate-700/60 flex items-center justify-center transition-all cursor-pointer active:scale-90"
-                      title="Edit Stock"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => setStockToDelete(inv)}
-                      className="w-7 h-7 rounded-full bg-slate-100/80 dark:bg-slate-800/80 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 border border-slate-200/60 dark:border-slate-700/60 flex items-center justify-center transition-all cursor-pointer active:scale-90"
-                      title="Delete Stock"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium truncate mt-0.5">
+                    {inv.name || inv.symbol}
+                  </p>
+
+                  <div className="flex items-center space-x-1.5 text-[10px] text-slate-400 dark:text-slate-500 font-bold mt-1">
+                    <span>{inv.quantity} Shares</span>
+                    <span>•</span>
+                    <span>Avg: ₹{inv.avgPrice.toLocaleString('en-IN')}</span>
+                    <span>•</span>
+                    <span className="text-slate-600 dark:text-slate-300 font-extrabold">LTP: ₹{currentPrice.toLocaleString('en-IN')}</span>
                   </div>
                 </div>
 
-                {/* Main Value & P&L Hero Section */}
-                <div className="flex items-end justify-between pt-0.5">
-                  <div>
-                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500 block">
-                      Current Value
-                    </span>
-                    <div className="text-xl font-black text-slate-900 dark:text-slate-50 tracking-tight mt-0.5">
-                      {formatINR(currentVal)}
-                    </div>
+                {/* Right: Current Value & P&L Pill */}
+                <div className="text-right shrink-0 flex flex-col items-end space-y-1">
+                  <div className="text-sm font-black text-slate-900 dark:text-slate-50 tracking-tight">
+                    {formatINR(currentVal)}
                   </div>
 
-                  {/* Modern Floating iOS P&L Pill Badge */}
                   <div
-                    className={`px-3 py-1.5 rounded-2xl flex items-center space-x-1.5 shadow-xs border ${
+                    className={`px-2 py-0.5 rounded-xl text-[10px] font-black flex items-center space-x-1 shadow-xs border ${
                       pnl >= 0
                         ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-600 dark:text-emerald-400'
                         : 'bg-rose-500/10 border-rose-500/25 text-rose-600 dark:text-rose-400'
                     }`}
                   >
                     {pnl >= 0 ? (
-                      <TrendingUp className="w-3.5 h-3.5 stroke-[2.5]" />
+                      <TrendingUp className="w-3 h-3 stroke-[2.5]" />
                     ) : (
-                      <TrendingDown className="w-3.5 h-3.5 stroke-[2.5]" />
+                      <TrendingDown className="w-3 h-3 stroke-[2.5]" />
                     )}
-                    <span className="text-xs font-black">
-                      {pnl >= 0 ? '+' : ''}{formatINR(pnl)}
-                    </span>
-                    <span className="text-[11px] font-extrabold opacity-80">
-                      ({pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(1)}%)
-                    </span>
+                    <span>{pnl >= 0 ? '+' : ''}{formatINR(pnl)}</span>
+                    <span className="opacity-80">({pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(1)}%)</span>
                   </div>
-                </div>
-
-                {/* Glass Inset Stats Row: Qty, Avg Buy, LTP, Invested */}
-                <div className="grid grid-cols-4 gap-2 p-2.5 rounded-2xl bg-slate-100/60 dark:bg-slate-800/40 border border-white/60 dark:border-white/5 backdrop-blur-md text-xs">
-                  <div>
-                    <span className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase block">Shares</span>
-                    <span className="font-extrabold text-slate-900 dark:text-slate-100 text-[11px] mt-0.5 block">
-                      {inv.quantity}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase block">Avg Buy</span>
-                    <span className="font-extrabold text-slate-900 dark:text-slate-100 text-[11px] mt-0.5 block">
-                      ₹{inv.avgPrice.toLocaleString('en-IN')}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase block">LTP</span>
-                    <span className="font-extrabold text-indigo-600 dark:text-indigo-400 text-[11px] mt-0.5 block">
-                      ₹{currentPrice.toLocaleString('en-IN')}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase block">Invested</span>
-                    <span className="font-extrabold text-slate-900 dark:text-slate-100 text-[11px] mt-0.5 block truncate">
-                      {formatINR(investedVal)}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Footer: Quick Sell Action Pill */}
-                <div className="flex items-center justify-between pt-1 border-t border-slate-100/80 dark:border-white/5">
-                  <div className="flex items-center space-x-1.5 text-[11px] text-slate-400 dark:text-slate-500 font-medium">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    <span>Live Market Tracked</span>
-                  </div>
-
-                  <button
-                    onClick={() => handleOpenSell(inv)}
-                    className="px-3.5 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-600 dark:bg-rose-500/15 dark:hover:bg-rose-600 text-rose-600 hover:text-white dark:text-rose-400 dark:hover:text-white border border-rose-500/25 hover:border-rose-600 font-extrabold text-xs flex items-center space-x-1.5 transition-all duration-200 active:scale-95 cursor-pointer shadow-xs"
-                    title="Sell stock and credit funds to balance"
-                  >
-                    <ArrowDownRight className="w-3.5 h-3.5 stroke-[2.5]" />
-                    <span>Sell Position</span>
-                  </button>
                 </div>
               </div>
             );
@@ -924,6 +872,154 @@ export function HoldingPortfolioScreen() {
             </button>
           </div>
         </form>
+      </BottomSheet>
+
+      {/* 0. Holding Detail BottomSheet with Fixed Buy/Sell Action Bar */}
+      <BottomSheet
+        isOpen={!!selectedInvestmentDetail}
+        onClose={() => setSelectedInvestmentDetail(null)}
+        title={selectedInvestmentDetail?.symbol || 'Holding Details'}
+        subtitle={selectedInvestmentDetail?.name || selectedInvestmentDetail?.symbol}
+      >
+        {selectedInvestmentDetail && (() => {
+          const liveInv = investments.find((i) => i.id === selectedInvestmentDetail.id) || selectedInvestmentDetail;
+          const currentPrice = liveInv.currentPrice && liveInv.currentPrice > 0 ? liveInv.currentPrice : liveInv.avgPrice;
+          const currentVal = liveInv.quantity * currentPrice;
+          const investedVal = liveInv.quantity * liveInv.avgPrice;
+          const pnl = currentVal - investedVal;
+          const pnlPct = investedVal > 0 ? (pnl / investedVal) * 100 : 0;
+          const linkedAccount = accounts.find((a) => a.id === liveInv.accountId);
+          const ownerMember = familyMembers.find((m) => m.id === liveInv.memberId);
+
+          return (
+            <div className="space-y-4 pb-20 select-none">
+              {/* Header Badges & Actions */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                  {linkedAccount && (
+                    <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300">
+                      <BankLogo name={linkedAccount.name} type="demat" color={linkedAccount.color} size="sm" className="w-3.5 h-3.5" />
+                      <span>{linkedAccount.name}</span>
+                    </div>
+                  )}
+                  {ownerMember && (
+                    <span className="px-2.5 py-1 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 text-xs font-bold">
+                      {ownerMember.name.replace(/\s*\(Primary\)/i, '')}
+                    </span>
+                  )}
+                  {liveInv.isIpoAllotted && (
+                    <span className="px-2 py-1 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-xs font-black uppercase">
+                      IPO Allotted
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center space-x-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedInvestmentDetail(null);
+                      setTimeout(() => handleOpenEdit(liveInv), 150);
+                    }}
+                    className="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                    title="Edit Position"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedInvestmentDetail(null);
+                      setTimeout(() => setStockToDelete(liveInv), 150);
+                    }}
+                    className="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors cursor-pointer"
+                    title="Delete Position"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Main P&L Hero Card */}
+              <div className="p-4 rounded-3xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 text-white shadow-lg border border-white/10 space-y-3">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">
+                      Current Value
+                    </span>
+                    <div className="text-2xl font-black text-white tracking-tight mt-0.5">
+                      {formatINR(currentVal)}
+                    </div>
+                  </div>
+
+                  <div
+                    className={`px-3 py-1.5 rounded-2xl flex items-center space-x-1.5 text-xs font-black shadow-xs border ${
+                      pnl >= 0
+                        ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400'
+                        : 'bg-rose-500/20 border-rose-500/40 text-rose-400'
+                    }`}
+                  >
+                    {pnl >= 0 ? <TrendingUp className="w-3.5 h-3.5 stroke-[2.5]" /> : <TrendingDown className="w-3.5 h-3.5 stroke-[2.5]" />}
+                    <span>{pnl >= 0 ? '+' : ''}{formatINR(pnl)}</span>
+                    <span className="text-[11px] opacity-80">({pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%)</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-2 border-t border-white/10 text-xs text-slate-300">
+                  <div className="flex items-center space-x-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    <span className="text-[11px] font-bold">LTP: ₹{currentPrice.toLocaleString('en-IN')}</span>
+                  </div>
+                  <span className="text-[11px] font-semibold text-slate-400">Live Market Tracked</span>
+                </div>
+              </div>
+
+              {/* Comprehensive Breakdown Metrics Grid */}
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-800 space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Quantity (Shares)</span>
+                  <span className="text-sm font-black text-slate-900 dark:text-slate-100 block">{liveInv.quantity} Shares</span>
+                </div>
+
+                <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-800 space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Average Buy Price</span>
+                  <span className="text-sm font-black text-slate-900 dark:text-slate-100 block">₹{liveInv.avgPrice.toLocaleString('en-IN')}</span>
+                </div>
+
+                <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-800 space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Invested</span>
+                  <span className="text-sm font-black text-slate-900 dark:text-slate-100 block">{formatINR(investedVal)}</span>
+                </div>
+
+                <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-800 space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Current Market Price</span>
+                  <span className="text-sm font-black text-indigo-600 dark:text-indigo-400 block">₹{currentPrice.toLocaleString('en-IN')}</span>
+                </div>
+              </div>
+
+              {/* Fixed Bottom Action Bar inside BottomSheet */}
+              <div className="fixed bottom-0 inset-x-0 p-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200/80 dark:border-slate-800 z-50 flex items-center space-x-3 rounded-b-3xl">
+                <button
+                  type="button"
+                  onClick={() => handleOpenBuyMore(liveInv)}
+                  className="flex-1 py-3 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs shadow-md shadow-emerald-600/30 flex items-center justify-center space-x-1.5 transition-all active:scale-[0.98] cursor-pointer touch-manipulation"
+                >
+                  <Plus className="w-4 h-4 stroke-[3]" />
+                  <span>Buy More</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleOpenSellFromDetail(liveInv)}
+                  className="flex-1 py-3 px-4 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs shadow-md shadow-rose-600/30 flex items-center justify-center space-x-1.5 transition-all active:scale-[0.98] cursor-pointer touch-manipulation"
+                >
+                  <ArrowDownRight className="w-4 h-4 stroke-[2.5]" />
+                  <span>Sell Position</span>
+                </button>
+              </div>
+            </div>
+          );
+        })()}
       </BottomSheet>
 
       {/* Edit Stock Holding Modal */}

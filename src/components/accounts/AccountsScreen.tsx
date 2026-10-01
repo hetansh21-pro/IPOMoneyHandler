@@ -354,19 +354,22 @@ export function AccountsScreen() {
         </button>
       </div>
 
-      {/* Account Type Filters with Smooth Sliding Pill */}
-      <SlidingSegmentedTabs
-        tabs={[
-          { id: 'ALL' as const, label: 'All' },
-          { id: 'BANK' as const, label: 'Bank' },
-          { id: 'DEMAT' as const, label: 'Demat' },
-          { id: 'CASH' as const, label: 'Cash / Wallet' },
-        ]}
-        activeId={activeAccountFilter}
-        onChange={(filter) => setActiveAccountFilter(filter)}
-        size="sm"
-        variant="equal"
-      />
+      {/* Account Type Filters with Green Underline */}
+      <div className="px-1 py-1">
+        <SlidingSegmentedTabs
+          tabs={[
+            { id: 'ALL' as const, label: 'All' },
+            { id: 'BANK' as const, label: 'Bank' },
+            { id: 'DEMAT' as const, label: 'Demat' },
+            { id: 'CASH' as const, label: 'Cash / Wallet' },
+          ]}
+          activeId={activeAccountFilter}
+          onChange={(filter) => setActiveAccountFilter(filter)}
+          size="sm"
+          variant="equal"
+          pillVariant="underline"
+        />
+      </div>
 
       {/* Accounts List */}
       {filteredAccounts.length === 0 ? (

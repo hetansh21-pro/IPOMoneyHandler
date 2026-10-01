@@ -161,32 +161,48 @@ export function TransactionsScreen() {
         </div>
       )}
 
-      {/* Search Bar with iOS Glass */}
-      <div className="relative">
-        <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-        <input
-          type="text"
-          placeholder="Search by note, account, or amount..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full pl-10 pr-4 py-2.5 rounded-2xl ios-glass-pill text-slate-900 dark:text-slate-100 placeholder-slate-400 text-xs focus:outline-none focus:border-emerald-600 shadow-xs"
-        />
-      </div>
+      {/* Quick Filter & Search Bar with iOS Frosted Glass (Matching IPO Screen) */}
+      <div className="space-y-2.5 ios-glass-card p-3 rounded-2xl">
+        {/* Row 1: Type Filter Tabs with Green Underline */}
+        <div className="px-1">
+          <SlidingSegmentedTabs
+            tabs={[
+              { id: 'ALL', label: 'All' },
+              { id: 'IN', label: 'Credit (+)' },
+              { id: 'OUT', label: 'Debit (-)' },
+              { id: 'IPO', label: 'IPO' },
+              { id: 'TRANSFER', label: 'Transfer' },
+            ]}
+            activeId={selectedTypeFilter}
+            onChange={(chip) => setSelectedTypeFilter(chip)}
+            size="sm"
+            variant="scrollable"
+            pillVariant="underline"
+          />
+        </div>
 
-      {/* Type Filter Tabs with Smooth Sliding Pill */}
-      <SlidingSegmentedTabs
-        tabs={[
-          { id: 'ALL', label: 'All' },
-          { id: 'IN', label: 'Credit (+)' },
-          { id: 'OUT', label: 'Debit (-)' },
-          { id: 'IPO', label: 'IPO' },
-          { id: 'TRANSFER', label: 'Transfer' },
-        ]}
-        activeId={selectedTypeFilter}
-        onChange={(chip) => setSelectedTypeFilter(chip)}
-        size="sm"
-        variant="scrollable"
-      />
+        {/* Row 2: Search Bar Underneath Filter Buttons */}
+        <div className="pt-1.5 border-t border-slate-100 dark:border-slate-800/80">
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2" />
+            <input
+              type="text"
+              placeholder="Search by note, account, or amount..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-8 pr-7 py-1.5 rounded-xl bg-slate-50/90 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800/80 text-slate-900 dark:text-slate-100 placeholder-slate-400 text-[11px] focus:outline-none focus:border-emerald-600 transition-all font-medium"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+              >
+                <span className="text-xs">✕</span>
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
 
       {/* Transactions List */}
       {filteredTransactions.length === 0 ? (

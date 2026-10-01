@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useEffect } from 'react';
+import React, { useRef } from 'react';
 import { useAppStore } from '@/lib/store/useAppStore';
 import { useBackHandler } from '@/lib/hooks/useBackHandler';
 import {
@@ -9,31 +9,17 @@ import {
   Lock,
   Sun,
   Moon,
-  Smartphone,
   Eye,
   EyeOff,
   UserPlus,
   ChevronRight,
   Shield,
-  Check,
 } from 'lucide-react';
 
 interface HeaderDropdownMenuProps {
   isOpen: boolean;
   onClose: () => void;
 }
-
-const RELATION_ICONS: Record<string, string> = {
-  Self: '👤',
-  Father: '👨',
-  Mother: '👩',
-  Brother: '👦',
-  Sister: '👧',
-  Spouse: '💍',
-  Son: '🧒',
-  Daughter: '👧',
-  Other: '👤',
-};
 
 export function HeaderDropdownMenu({ isOpen, onClose }: HeaderDropdownMenuProps) {
   const {
@@ -45,7 +31,6 @@ export function HeaderDropdownMenu({ isOpen, onClose }: HeaderDropdownMenuProps)
     lockApp,
     familyMembers,
     activeMemberId,
-    setActiveMemberId,
     setIsFamilyModalOpen,
     setActiveTab,
   } = useAppStore();
@@ -60,20 +45,18 @@ export function HeaderDropdownMenu({ isOpen, onClose }: HeaderDropdownMenuProps)
 
   if (!isOpen) return null;
 
-  const handleSelectMember = (id: string | 'all') => {
-    setActiveMemberId(id);
-    if (typeof navigator !== 'undefined' && navigator.vibrate) {
-      try {
-        navigator.vibrate(15);
-      } catch {}
-    }
-  };
+  const isDark =
+    themeMode === 'dark' ||
+    (themeMode === 'system' &&
+      typeof window !== 'undefined' &&
+      window.matchMedia &&
+      window.matchMedia('(prefers-color-scheme: dark)').matches);
 
-  const handleSelectTheme = (mode: 'system' | 'light' | 'dark') => {
+  const handleSelectTheme = (mode: 'light' | 'dark') => {
     setThemeMode(mode);
     if (typeof navigator !== 'undefined' && navigator.vibrate) {
       try {
-        navigator.vibrate(15);
+        navigator.vibrate(10);
       } catch {}
     }
   };
@@ -97,6 +80,8 @@ export function HeaderDropdownMenu({ isOpen, onClose }: HeaderDropdownMenuProps)
     }, 120);
   };
 
+  const activeMember = familyMembers.find((m) => m.id === activeMemberId);
+
   return (
     <>
       {/* Backdrop overlay */}
@@ -114,8 +99,8 @@ export function HeaderDropdownMenu({ isOpen, onClose }: HeaderDropdownMenuProps)
         onClick={(e) => e.stopPropagation()}
         className="absolute right-3 top-[calc(max(env(safe-area-inset-top,0px),10px)+3.2rem)] z-50 w-[290px] rounded-[24px] bg-white dark:bg-[#0f172a] border border-black/10 dark:border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.2)] dark:shadow-[0_25px_60px_rgba(0,0,0,0.7)] p-3 space-y-3 select-none animate-scale-up origin-top-right text-[#0f172a] dark:text-slate-100"
       >
-        {/* 1. User & Family Profile Switcher */}
-        <div className="space-y-1.5">
+        {/* 1. User & Family Profile Card */}
+        <div className="space-y-2">
           <div className="flex items-center justify-between px-1">
             <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500">
               User Profile
@@ -125,107 +110,96 @@ export function HeaderDropdownMenu({ isOpen, onClose }: HeaderDropdownMenuProps)
               onClick={handleManageFamily}
               className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center space-x-1 hover:underline cursor-pointer touch-manipulation active:scale-95"
             >
-              <UserPlus className="w-3 h-3" />
+              <UserPlus className="w-3.5 h-3.5" />
               <span>Manage</span>
             </button>
           </div>
 
-          <div className="flex items-center space-x-1 overflow-x-auto no-scrollbar scrollbar-none [scrollbar-width:none] [-ms-overflow-style:none] py-0.5">
-            {/* All Option */}
-            <button
-              type="button"
-              onClick={() => handleSelectMember('all')}
-              className={`flex items-center space-x-1 px-2.5 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer shrink-0 touch-manipulation active:scale-95 ${
-                activeMemberId === 'all'
-                  ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-950 shadow-xs'
-                  : 'bg-black/5 dark:bg-white/10 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              <Users className="w-3 h-3" />
-              <span>All</span>
-            </button>
+          {/* Active Profile Card */}
+          <div
+            onClick={handleManageFamily}
+            className="p-2.5 rounded-2xl bg-slate-50/80 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/60 flex items-center justify-between cursor-pointer hover:bg-slate-100/80 dark:hover:bg-slate-800/90 transition-all group"
+          >
+            <div className="flex items-center space-x-2.5 min-w-0">
+              <div
+                className="w-8 h-8 rounded-xl flex items-center justify-center text-xs font-black shadow-xs shrink-0 text-white"
+                style={{
+                  backgroundColor:
+                    activeMemberId === 'all'
+                      ? '#059669'
+                      : activeMember?.avatarColor || '#0284c7',
+                }}
+              >
+                {activeMemberId === 'all' ? (
+                  <Users className="w-4 h-4 text-white stroke-[2.5]" />
+                ) : (
+                  <span>{activeMember?.name?.charAt(0).toUpperCase() || 'U'}</span>
+                )}
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center space-x-1.5">
+                  <h4 className="text-xs font-black text-slate-900 dark:text-slate-100 truncate">
+                    {activeMemberId === 'all'
+                      ? 'All Family Overview'
+                      : activeMember?.name.replace(/\s*\(Primary\)/i, '') || 'Me'}
+                  </h4>
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                </div>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium truncate">
+                  {activeMemberId === 'all'
+                    ? `${familyMembers.length} Family Profiles Combined`
+                    : `${activeMember?.relation || 'Self'} • Active Profile`}
+                </p>
+              </div>
+            </div>
 
-            {/* Individual Members */}
-            {familyMembers.map((member) => {
-              const isActive = activeMemberId === member.id;
-              const icon = RELATION_ICONS[member.relation] || '👤';
-
-              return (
-                <button
-                  key={member.id}
-                  type="button"
-                  onClick={() => handleSelectMember(member.id)}
-                  className={`flex items-center space-x-1 px-2.5 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer shrink-0 touch-manipulation active:scale-95 ${
-                    isActive
-                      ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-950 shadow-xs'
-                      : 'bg-black/5 dark:bg-white/10 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
-                  }`}
-                >
-                  <span className="text-[10px] leading-none">{icon}</span>
-                  <span className="truncate max-w-[70px]">{member.name.replace(/\s*\(Primary\)/i, '')}</span>
-                </button>
-              );
-            })}
+            <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-slate-700 dark:group-hover:text-slate-200 transition-colors shrink-0 ml-1" />
           </div>
         </div>
 
         {/* Divider */}
         <div className="h-px bg-slate-100 dark:bg-white/5" />
 
-        {/* 2. 1-Click Theme Switcher (Light / Dark) with clean Underline */}
+        {/* 2. 1-Click Smooth Theme Switcher with Sliding Green Line */}
         <div className="space-y-1">
           <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500 px-1 block">
             Appearance
           </span>
           <div className="relative flex items-center justify-around pt-0.5 pb-1 select-none">
+            {/* Sliding Green Line Indicator */}
+            <div
+              className="absolute bottom-0 left-0 h-[2.5px] w-1/2 flex items-center justify-center transition-transform duration-300 ease-[cubic-bezier(0.2,0.9,0.2,1)] will-change-transform pointer-events-none"
+              style={{
+                transform: isDark ? 'translateX(100%)' : 'translateX(0%)',
+              }}
+            >
+              <span className="w-12 h-full rounded-full bg-emerald-600 dark:bg-emerald-400 shadow-[0_1px_4px_rgba(5,150,105,0.4)]" />
+            </div>
+
             <button
               type="button"
-              onPointerDown={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                handleSelectTheme('light');
-              }}
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                handleSelectTheme('light');
-              }}
-              className={`relative flex-1 flex items-center justify-center space-x-1.5 py-1.5 text-xs font-black transition-colors cursor-pointer touch-manipulation active:scale-95 ${
-                themeMode === 'light'
-                  ? 'text-slate-950 dark:text-white'
-                  : 'text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+              onClick={() => handleSelectTheme('light')}
+              className={`relative flex-1 flex items-center justify-center space-x-1.5 py-1.5 text-xs transition-colors duration-200 cursor-pointer touch-manipulation active:scale-95 ${
+                !isDark
+                  ? 'text-emerald-600 dark:text-emerald-400 font-black'
+                  : 'text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 font-bold'
               }`}
             >
-              <Sun className={`w-3.5 h-3.5 ${themeMode === 'light' ? 'text-amber-500 stroke-[2.5]' : 'text-slate-400'}`} />
+              <Sun className={`w-3.5 h-3.5 ${!isDark ? 'text-amber-500 stroke-[2.5]' : 'text-slate-400'}`} />
               <span>Light</span>
-              {themeMode === 'light' && (
-                <span className="absolute bottom-0 inset-x-4 h-[2.5px] rounded-full bg-slate-900 dark:bg-white shadow-xs transition-all duration-300" />
-              )}
             </button>
 
             <button
               type="button"
-              onPointerDown={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                handleSelectTheme('dark');
-              }}
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                handleSelectTheme('dark');
-              }}
-              className={`relative flex-1 flex items-center justify-center space-x-1.5 py-1.5 text-xs font-black transition-colors cursor-pointer touch-manipulation active:scale-95 ${
-                themeMode === 'dark' || (themeMode === 'system' && typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
-                  ? 'text-slate-950 dark:text-white'
-                  : 'text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+              onClick={() => handleSelectTheme('dark')}
+              className={`relative flex-1 flex items-center justify-center space-x-1.5 py-1.5 text-xs transition-colors duration-200 cursor-pointer touch-manipulation active:scale-95 ${
+                isDark
+                  ? 'text-emerald-600 dark:text-emerald-400 font-black'
+                  : 'text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 font-bold'
               }`}
             >
-              <Moon className={`w-3.5 h-3.5 ${themeMode === 'dark' ? 'text-indigo-400 stroke-[2.5]' : 'text-slate-400'}`} />
+              <Moon className={`w-3.5 h-3.5 ${isDark ? 'text-indigo-400 stroke-[2.5]' : 'text-slate-400'}`} />
               <span>Dark</span>
-              {(themeMode === 'dark' || (themeMode === 'system' && typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)) && (
-                <span className="absolute bottom-0 inset-x-4 h-[2.5px] rounded-full bg-slate-900 dark:bg-white shadow-xs transition-all duration-300" />
-              )}
             </button>
           </div>
         </div>

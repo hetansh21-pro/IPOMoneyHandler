@@ -82,12 +82,11 @@ export function FamilyProfileSwitcher() {
         style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         className="flex items-center space-x-1.5 overflow-x-auto no-scrollbar scrollbar-none scroll-smooth relative [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden pb-1"
       >
-        {/* Sliding Underline Bar Indicator */}
+        {/* Sliding Single Green Dot Indicator */}
         <div
-          className="absolute bottom-0 left-0 h-[3px] rounded-full bg-slate-900 dark:bg-white pointer-events-none will-change-transform z-10 shadow-xs transition-[transform,width,opacity] duration-300 ease-[cubic-bezier(0.2,0.9,0.2,1)]"
+          className="absolute bottom-0 left-0 w-1.5 h-1.5 rounded-full bg-emerald-600 dark:bg-emerald-400 pointer-events-none will-change-transform z-10 shadow-[0_1px_4px_rgba(5,150,105,0.4)] transition-[transform,opacity] duration-300 ease-[cubic-bezier(0.2,0.9,0.2,1)]"
           style={{
-            transform: `translate3d(${indicatorStyle.left}px, 0, 0)`,
-            width: `${indicatorStyle.width}px`,
+            transform: `translate3d(${indicatorStyle.left + indicatorStyle.width / 2 - 3}px, 0, 0)`,
             opacity: indicatorStyle.opacity,
           }}
         />
@@ -99,20 +98,19 @@ export function FamilyProfileSwitcher() {
           }}
           type="button"
           onClick={() => handleSelectMember('all')}
-          className={`flex items-center space-x-1.5 px-3 py-1 text-[13px] transition-colors duration-200 cursor-pointer touch-manipulation select-none shrink-0 font-semibold active:scale-95 ${
+          className={`flex items-center space-x-1 px-2.5 py-1 text-[13px] transition-colors duration-200 cursor-pointer touch-manipulation select-none shrink-0 font-semibold active:scale-95 ${
             activeMemberId === 'all'
-              ? 'text-slate-950 dark:text-white font-black'
-              : 'text-slate-500 dark:text-slate-300 font-bold hover:text-slate-900 dark:hover:text-white'
+              ? 'text-emerald-600 dark:text-emerald-400 font-black'
+              : 'text-slate-400 dark:text-slate-500 font-bold hover:text-slate-700 dark:hover:text-slate-300'
           }`}
         >
-          <Users className={`w-3.5 h-3.5 shrink-0 ${activeMemberId === 'all' ? 'stroke-[2.5]' : 'stroke-2'}`} />
+          <Users className={`w-3.5 h-3.5 shrink-0 mr-1 ${activeMemberId === 'all' ? 'text-emerald-600 dark:text-emerald-400 stroke-[2.5]' : 'stroke-2'}`} />
           <span>All</span>
         </button>
 
-        {/* Individual Family Member Tabs */}
+        {/* Individual Family Member Tabs (Without Emojis) */}
         {familyMembers.map((member) => {
           const isActive = activeMemberId === member.id;
-          const icon = RELATION_ICONS[member.relation] || '👤';
           const displayName = member.name.replace(/\s*\(Primary\)/i, '');
 
           return (
@@ -123,13 +121,12 @@ export function FamilyProfileSwitcher() {
               }}
               type="button"
               onClick={() => handleSelectMember(member.id)}
-              className={`flex items-center space-x-1.5 px-3 py-1 text-[13px] transition-colors duration-200 cursor-pointer touch-manipulation select-none shrink-0 font-semibold active:scale-95 ${
+              className={`flex items-center px-2.5 py-1 text-[13px] transition-colors duration-200 cursor-pointer touch-manipulation select-none shrink-0 font-semibold active:scale-95 ${
                 isActive
-                  ? 'text-slate-950 dark:text-white font-black'
-                  : 'text-slate-500 dark:text-slate-300 font-bold hover:text-slate-900 dark:hover:text-white'
+                  ? 'text-emerald-600 dark:text-emerald-400 font-black'
+                  : 'text-slate-400 dark:text-slate-500 font-bold hover:text-slate-700 dark:hover:text-slate-300'
               }`}
             >
-              <span className="text-[12px] leading-none select-none">{icon}</span>
               <span className="truncate max-w-[100px]">{displayName}</span>
             </button>
           );

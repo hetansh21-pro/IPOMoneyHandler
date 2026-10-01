@@ -38,15 +38,36 @@ export function QuickActionModal() {
     addInvestment,
     setActiveTab,
     activeMemberId,
+    familyMembers,
   } = useAppStore();
 
   const [activeAction, setActiveAction] = useState<
     'menu' | 'add_money' | 'remove_money' | 'transfer' | 'add_account' | 'add_investment'
   >('menu');
 
+  // Filter accounts for active family member
+  const memberAccounts = React.useMemo(() => {
+    return activeMemberId === 'all'
+      ? accounts
+      : accounts.filter((a) => a.memberId === activeMemberId || (activeMemberId === 'self' && !a.memberId));
+  }, [accounts, activeMemberId]);
+
+  const dematAccounts = React.useMemo(() => {
+    return memberAccounts.filter((a) => a.type === 'demat' || a.type === 'investment');
+  }, [memberAccounts]);
+
+  const activeMember = familyMembers.find((m) => m.id === activeMemberId);
+  const memberDisplayName = activeMember ? activeMember.name : activeMemberId === 'self' ? 'Me' : 'All Family';
+
+  const getAccountOwnerLabel = (acc: (typeof accounts)[0]) => {
+    if (activeMemberId !== 'all') return '';
+    const member = familyMembers.find((m) => m.id === (acc.memberId || 'self'));
+    return member ? ` • ${member.name}` : ' • Me';
+  };
+
   // Form states
-  const [selectedAccountId, setSelectedAccountId] = useState(accounts[0]?.id || '');
-  const [targetAccountId, setTargetAccountId] = useState(accounts[1]?.id || '');
+  const [selectedAccountId, setSelectedAccountId] = useState('');
+  const [targetAccountId, setTargetAccountId] = useState('');
   const [amountInput, setAmountInput] = useState('');
   const [descriptionInput, setDescriptionInput] = useState('');
   const [formError, setFormError] = useState('');
@@ -56,16 +77,36 @@ export function QuickActionModal() {
       if (quickActionType) {
         setActiveAction(quickActionType);
       }
-      if (quickActionAccountId && accounts.some((a) => a.id === quickActionAccountId)) {
+      if (quickActionAccountId && memberAccounts.some((a) => a.id === quickActionAccountId)) {
         setSelectedAccountId(quickActionAccountId);
-      } else if (!selectedAccountId && accounts.length > 0) {
-        setSelectedAccountId(accounts[0].id);
+      } else if (memberAccounts.length > 0) {
+        if (!selectedAccountId || !memberAccounts.some((a) => a.id === selectedAccountId)) {
+          setSelectedAccountId(memberAccounts[0].id);
+        }
+      } else {
+        setSelectedAccountId('');
       }
+
+      if (memberAccounts.length > 1) {
+        const defaultSource = quickActionAccountId || memberAccounts[0]?.id;
+        const target = memberAccounts.find((a) => a.id !== defaultSource);
+        setTargetAccountId(target?.id || memberAccounts[1]?.id || '');
+      } else {
+        setTargetAccountId('');
+      }
+
+      const demats = memberAccounts.filter((a) => a.type === 'demat' || a.type === 'investment');
+      if (demats.length > 0) {
+        setInvAccountId((prev) => (demats.some((d) => d.id === prev) ? prev : demats[0].id));
+      } else {
+        setInvAccountId('');
+      }
+
       setAmountInput('');
       setDescriptionInput('');
       setFormError('');
     }
-  }, [quickActionOpen, quickActionType, quickActionAccountId, accounts, selectedAccountId]);
+  }, [quickActionOpen, quickActionType, quickActionAccountId, memberAccounts]);
 
   // Add Account form
   const [accName, setAccName] = useState('');
@@ -73,8 +114,6 @@ export function QuickActionModal() {
   const [accInitialBalance, setAccInitialBalance] = useState('');
   const [accInvestedAmount, setAccInvestedAmount] = useState('');
   const [accNotes, setAccNotes] = useState('');
-
-  const dematAccounts = accounts.filter((a) => a.type === 'demat' || a.type === 'investment');
 
   // Add Investment form
   const [invSymbol, setInvSymbol] = useState('');
@@ -359,180 +398,319 @@ export function QuickActionModal() {
 
       {/* Add Money Form */}
       {activeAction === 'add_money' && (
-        <form onSubmit={handleAddMoneySubmit} className="space-y-4">
-          <CustomDropdown
-            label="Select Account"
-            value={selectedAccountId}
-            onChange={(val) => setSelectedAccountId(val)}
-            themeVariant="emerald"
-            options={accounts.map((acc) => ({
-              value: acc.id,
-              label: acc.name,
-              subLabel: `Balance: ${formatINR(acc.balance)}`,
-              icon: (
-                <BankLogo
-                  name={acc.name}
-                  type={acc.type}
-                  color={acc.color}
-                  size="sm"
-                  className="w-4 h-4 rounded-md !p-0.5"
-                />
-              ),
-            }))}
-          />
-
-          <div>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Amount (₹)</label>
-            <input
-              type="number"
-              step="any"
-              inputMode="decimal"
-              placeholder="e.g. 25000.50"
-              value={amountInput}
-              onChange={(e) => setAmountInput(e.target.value)}
-              className="w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-lg font-bold focus:outline-none focus:border-emerald-600"
-              required
+        memberAccounts.length === 0 ? (
+          <div className="p-6 text-center rounded-3xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 my-2">
+            <div className="w-12 h-12 mx-auto mb-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+              <Building2 className="w-6 h-6" />
+            </div>
+            <h4 className="text-sm font-black text-slate-900 dark:text-slate-100">
+              No Accounts for {memberDisplayName}
+            </h4>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 mb-4">
+              Add a bank or demat account to deposit money for {memberDisplayName}.
+            </p>
+            <div className="flex space-x-3">
+              <button
+                type="button"
+                onClick={() => setActiveAction('menu')}
+                className="w-1/3 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-semibold cursor-pointer"
+              >
+                Back
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveAction('add_account')}
+                className="flex-1 py-3 rounded-2xl bg-purple-600 text-white font-bold text-xs hover:bg-purple-500 shadow-sm cursor-pointer transition-colors"
+              >
+                + Add Account for {memberDisplayName}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={handleAddMoneySubmit} className="space-y-4">
+            <CustomDropdown
+              label="Select Account"
+              value={selectedAccountId}
+              onChange={(val) => setSelectedAccountId(val)}
+              themeVariant="emerald"
+              options={memberAccounts.map((acc) => ({
+                value: acc.id,
+                label: `${acc.name}${getAccountOwnerLabel(acc)}`,
+                subLabel: `Balance: ${formatINR(acc.balance)}`,
+                icon: (
+                  <BankLogo
+                    name={acc.name}
+                    type={acc.type}
+                    color={acc.color}
+                    size="sm"
+                    className="w-4 h-4 rounded-md !p-0.5"
+                  />
+                ),
+              }))}
             />
-          </div>
 
-          <div>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Description (Optional)</label>
-            <input
-              type="text"
-              placeholder="e.g. Salary, Dividend, Cash deposit"
-              value={descriptionInput}
-              onChange={(e) => setDescriptionInput(e.target.value)}
-              className="w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-xs focus:outline-none focus:border-emerald-600"
-            />
-          </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Amount (₹)</label>
+              <input
+                type="number"
+                step="any"
+                inputMode="decimal"
+                placeholder="e.g. 25000.50"
+                value={amountInput}
+                onChange={(e) => setAmountInput(e.target.value)}
+                className="w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-lg font-bold focus:outline-none focus:border-emerald-600"
+                required
+              />
+            </div>
 
-          {formError && <p className="text-xs text-rose-600 dark:text-rose-400 font-medium">{formError}</p>}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Description (Optional)</label>
+              <input
+                type="text"
+                placeholder="e.g. Salary, Dividend, Cash deposit"
+                value={descriptionInput}
+                onChange={(e) => setDescriptionInput(e.target.value)}
+                className="w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-xs focus:outline-none focus:border-emerald-600"
+              />
+            </div>
 
-          <div className="flex space-x-3 pt-2">
-            <button
-              type="button"
-              onClick={() => setActiveAction('menu')}
-              className="w-1/3 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-semibold cursor-pointer transition-colors"
-            >
-              Back
-            </button>
-            <button
-              type="submit"
-              className="flex-1 py-3 rounded-2xl bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-500 shadow-sm cursor-pointer"
-            >
-              Confirm Add Money
-            </button>
-          </div>
-        </form>
+            {formError && <p className="text-xs text-rose-600 dark:text-rose-400 font-medium">{formError}</p>}
+
+            <div className="flex space-x-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setActiveAction('menu')}
+                className="w-1/3 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-semibold cursor-pointer transition-colors"
+              >
+                Back
+              </button>
+              <button
+                type="submit"
+                className="flex-1 py-3 rounded-2xl bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-500 shadow-sm cursor-pointer"
+              >
+                Confirm Add Money
+              </button>
+            </div>
+          </form>
+        )
       )}
 
       {/* Remove Money Form */}
       {activeAction === 'remove_money' && (
-        <form onSubmit={handleRemoveMoneySubmit} className="space-y-4">
-          <CustomDropdown
-            label="Select Account"
-            value={selectedAccountId}
-            onChange={(val) => setSelectedAccountId(val)}
-            themeVariant="rose"
-            options={accounts.map((acc) => {
+        memberAccounts.length === 0 ? (
+          <div className="p-6 text-center rounded-3xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 my-2">
+            <div className="w-12 h-12 mx-auto mb-3 rounded-2xl bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 flex items-center justify-center">
+              <Building2 className="w-6 h-6" />
+            </div>
+            <h4 className="text-sm font-black text-slate-900 dark:text-slate-100">
+              No Accounts for {memberDisplayName}
+            </h4>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 mb-4">
+              Add an account with funds before withdrawing or spending.
+            </p>
+            <div className="flex space-x-3">
+              <button
+                type="button"
+                onClick={() => setActiveAction('menu')}
+                className="w-1/3 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-semibold cursor-pointer"
+              >
+                Back
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveAction('add_account')}
+                className="flex-1 py-3 rounded-2xl bg-purple-600 text-white font-bold text-xs hover:bg-purple-500 shadow-sm cursor-pointer transition-colors"
+              >
+                + Add Account for {memberDisplayName}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={handleRemoveMoneySubmit} className="space-y-4">
+            <CustomDropdown
+              label="Select Account"
+              value={selectedAccountId}
+              onChange={(val) => setSelectedAccountId(val)}
+              themeVariant="rose"
+              options={memberAccounts.map((acc) => {
+                const avail = getAccountAvailableBalance(acc, applications, allocations);
+                return {
+                  value: acc.id,
+                  label: `${acc.name}${getAccountOwnerLabel(acc)}`,
+                  subLabel: `Available: ${formatINR(avail)}`,
+                  icon: (
+                    <BankLogo
+                      name={acc.name}
+                      type={acc.type}
+                      color={acc.color}
+                      size="sm"
+                      className="w-4 h-4 rounded-md !p-0.5"
+                    />
+                  ),
+                };
+              })}
+            />
+
+            {(() => {
+              const acc = memberAccounts.find((a) => a.id === selectedAccountId) || accounts.find((a) => a.id === selectedAccountId);
+              if (!acc) return null;
               const avail = getAccountAvailableBalance(acc, applications, allocations);
-              return {
-                value: acc.id,
-                label: acc.name,
-                subLabel: `Available: ${formatINR(avail)}`,
-                icon: (
-                  <BankLogo
-                    name={acc.name}
-                    type={acc.type}
-                    color={acc.color}
-                    size="sm"
-                    className="w-4 h-4 rounded-md !p-0.5"
-                  />
-                ),
-              };
-            })}
-          />
+              const blocked = getAccountIPOBlockedAmount(acc.id, applications);
 
-          {(() => {
-            const acc = accounts.find((a) => a.id === selectedAccountId);
-            if (!acc) return null;
-            const avail = getAccountAvailableBalance(acc, applications, allocations);
-            const blocked = getAccountIPOBlockedAmount(acc.id, applications);
-
-            return (
-              <div className="p-3 rounded-2xl bg-rose-50/70 dark:bg-rose-950/40 border border-rose-100 dark:border-rose-900/60 flex items-center justify-between text-xs">
-                <div>
-                  <span className="text-[10px] text-rose-700 dark:text-rose-400 font-bold uppercase block">Max Withdrawable</span>
-                  <span className="text-sm font-black text-slate-900 dark:text-slate-100">{formatINR(avail)}</span>
+              return (
+                <div className="p-3 rounded-2xl bg-rose-50/70 dark:bg-rose-950/40 border border-rose-100 dark:border-rose-900/60 flex items-center justify-between text-xs">
+                  <div>
+                    <span className="text-[10px] text-rose-700 dark:text-rose-400 font-bold uppercase block">Max Withdrawable</span>
+                    <span className="text-sm font-black text-slate-900 dark:text-slate-100">{formatINR(avail)}</span>
+                  </div>
+                  {blocked > 0 && (
+                    <span className="text-[10px] text-amber-700 dark:text-amber-400 font-bold bg-white dark:bg-slate-900 px-2.5 py-1 rounded-xl border border-amber-200 dark:border-amber-800">
+                      🔒 {formatINR(blocked)} IPO Blocked
+                    </span>
+                  )}
                 </div>
-                {blocked > 0 && (
-                  <span className="text-[10px] text-amber-700 dark:text-amber-400 font-bold bg-white dark:bg-slate-900 px-2.5 py-1 rounded-xl border border-amber-200 dark:border-amber-800">
-                    🔒 {formatINR(blocked)} IPO Blocked
-                  </span>
-                )}
-              </div>
-            );
-          })()}
+              );
+            })()}
 
-          <div>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Amount to Withdraw (₹)</label>
-            <input
-              type="number"
-              step="any"
-              inputMode="decimal"
-              placeholder="e.g. 5000.75"
-              value={amountInput}
-              onChange={(e) => setAmountInput(e.target.value)}
-              className="w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-lg font-bold focus:outline-none focus:border-rose-600"
-              required
-            />
-          </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Amount to Withdraw (₹)</label>
+              <input
+                type="number"
+                step="any"
+                inputMode="decimal"
+                placeholder="e.g. 5000.75"
+                value={amountInput}
+                onChange={(e) => setAmountInput(e.target.value)}
+                className="w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-lg font-bold focus:outline-none focus:border-rose-600"
+                required
+              />
+            </div>
 
-          <div>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Description (Optional)</label>
-            <input
-              type="text"
-              placeholder="e.g. Rent, Grocery, Cash Withdrawal"
-              value={descriptionInput}
-              onChange={(e) => setDescriptionInput(e.target.value)}
-              className="w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-xs focus:outline-none focus:border-rose-600"
-            />
-          </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Description (Optional)</label>
+              <input
+                type="text"
+                placeholder="e.g. Rent, Grocery, Cash Withdrawal"
+                value={descriptionInput}
+                onChange={(e) => setDescriptionInput(e.target.value)}
+                className="w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-xs focus:outline-none focus:border-rose-600"
+              />
+            </div>
 
-          {formError && <p className="text-xs text-rose-600 dark:text-rose-400 font-medium">{formError}</p>}
+            {formError && <p className="text-xs text-rose-600 dark:text-rose-400 font-medium">{formError}</p>}
 
-          <div className="flex space-x-3 pt-2">
-            <button
-              type="button"
-              onClick={() => setActiveAction('menu')}
-              className="w-1/3 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-semibold cursor-pointer transition-colors"
-            >
-              Back
-            </button>
-            <button
-              type="submit"
-              className="flex-1 py-3 rounded-2xl bg-rose-600 text-white font-bold text-xs hover:bg-rose-500 shadow-sm cursor-pointer"
-            >
-              Confirm Remove Money
-            </button>
-          </div>
-        </form>
+            <div className="flex space-x-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setActiveAction('menu')}
+                className="w-1/3 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-semibold cursor-pointer transition-colors"
+              >
+                Back
+              </button>
+              <button
+                type="submit"
+                className="flex-1 py-3 rounded-2xl bg-rose-600 text-white font-bold text-xs hover:bg-rose-500 shadow-sm cursor-pointer"
+              >
+                Confirm Remove Money
+              </button>
+            </div>
+          </form>
+        )
       )}
 
       {/* Transfer Form */}
       {activeAction === 'transfer' && (
-        <form onSubmit={handleTransferSubmit} className="space-y-4">
-          <CustomDropdown
-            label="From Account"
-            value={selectedAccountId}
-            onChange={(val) => setSelectedAccountId(val)}
-            themeVariant="sky"
-            options={accounts.map((acc) => {
-              const avail = getAccountAvailableBalance(acc, applications, allocations);
-              return {
+        memberAccounts.length < 2 ? (
+          <div className="p-6 text-center rounded-3xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 my-2">
+            <div className="w-12 h-12 mx-auto mb-3 rounded-2xl bg-sky-50 dark:bg-sky-950/50 text-sky-600 dark:text-sky-400 flex items-center justify-center">
+              <ArrowRightLeft className="w-6 h-6" />
+            </div>
+            <h4 className="text-sm font-black text-slate-900 dark:text-slate-100">
+              {memberAccounts.length === 0
+                ? `No Accounts for ${memberDisplayName}`
+                : `Need At Least 2 Accounts for Transfer`}
+            </h4>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 mb-4">
+              {memberAccounts.length === 0
+                ? `Add at least 2 accounts for ${memberDisplayName} to transfer funds between them.`
+                : `${memberDisplayName} currently has only 1 account (${memberAccounts[0]?.name}). Add another account to transfer funds between them.`}
+            </p>
+            <div className="flex space-x-3">
+              <button
+                type="button"
+                onClick={() => setActiveAction('menu')}
+                className="w-1/3 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-semibold cursor-pointer"
+              >
+                Back
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveAction('add_account')}
+                className="flex-1 py-3 rounded-2xl bg-sky-600 text-white font-bold text-xs hover:bg-sky-500 shadow-sm cursor-pointer transition-colors"
+              >
+                + Add Another Account
+              </button>
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={handleTransferSubmit} className="space-y-4">
+            <CustomDropdown
+              label="From Account"
+              value={selectedAccountId}
+              onChange={(val) => {
+                setSelectedAccountId(val);
+                if (val === targetAccountId) {
+                  const other = memberAccounts.find((a) => a.id !== val);
+                  if (other) setTargetAccountId(other.id);
+                }
+              }}
+              themeVariant="sky"
+              options={memberAccounts.map((acc) => {
+                const avail = getAccountAvailableBalance(acc, applications, allocations);
+                return {
+                  value: acc.id,
+                  label: `${acc.name}${getAccountOwnerLabel(acc)}`,
+                  subLabel: `Available: ${formatINR(avail)}`,
+                  icon: (
+                    <BankLogo
+                      name={acc.name}
+                      type={acc.type}
+                      color={acc.color}
+                      size="sm"
+                      className="w-4 h-4 rounded-md !p-0.5"
+                    />
+                  ),
+                };
+              })}
+            />
+
+            {(() => {
+              const fromAcc = memberAccounts.find((a) => a.id === selectedAccountId) || accounts.find((a) => a.id === selectedAccountId);
+              if (!fromAcc) return null;
+              const avail = getAccountAvailableBalance(fromAcc, applications, allocations);
+
+              return (
+                <div className="p-3 rounded-2xl bg-sky-50/70 dark:bg-sky-950/40 border border-sky-100 dark:border-sky-900/60 flex items-center justify-between text-xs">
+                  <div>
+                    <span className="text-[10px] text-sky-700 dark:text-sky-400 font-bold uppercase block">Transfer Limit</span>
+                    <span className="text-sm font-black text-slate-900 dark:text-slate-100">{formatINR(avail)}</span>
+                  </div>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                    Available in {fromAcc.name}
+                  </span>
+                </div>
+              );
+            })()}
+
+            <CustomDropdown
+              label="To Destination Account"
+              value={targetAccountId}
+              onChange={(val) => setTargetAccountId(val)}
+              themeVariant="sky"
+              options={memberAccounts.map((acc) => ({
                 value: acc.id,
-                label: acc.name,
-                subLabel: `Available: ${formatINR(avail)}`,
+                label: `${acc.name}${getAccountOwnerLabel(acc)}`,
+                subLabel: `Balance: ${formatINR(acc.balance)}`,
                 icon: (
                   <BankLogo
                     name={acc.name}
@@ -542,86 +720,54 @@ export function QuickActionModal() {
                     className="w-4 h-4 rounded-md !p-0.5"
                   />
                 ),
-              };
-            })}
-          />
-
-          {(() => {
-            const fromAcc = accounts.find((a) => a.id === selectedAccountId);
-            if (!fromAcc) return null;
-            const avail = getAccountAvailableBalance(fromAcc, applications, allocations);
-
-            return (
-              <div className="p-3 rounded-2xl bg-sky-50/70 dark:bg-sky-950/40 border border-sky-100 dark:border-sky-900/60 flex items-center justify-between text-xs">
-                <div>
-                  <span className="text-[10px] text-sky-700 dark:text-sky-400 font-bold uppercase block">Transfer Limit</span>
-                  <span className="text-sm font-black text-slate-900 dark:text-slate-100">{formatINR(avail)}</span>
-                </div>
-                <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
-                  Available in {fromAcc.name}
-                </span>
-              </div>
-            );
-          })()}
-
-          <CustomDropdown
-            label="To Destination Account"
-            value={targetAccountId}
-            onChange={(val) => setTargetAccountId(val)}
-            themeVariant="sky"
-            options={accounts.map((acc) => ({
-              value: acc.id,
-              label: acc.name,
-              subLabel: `Balance: ${formatINR(acc.balance)}`,
-              icon: (
-                <BankLogo
-                  name={acc.name}
-                  type={acc.type}
-                  color={acc.color}
-                  size="sm"
-                  className="w-4 h-4 rounded-md !p-0.5"
-                />
-              ),
-            }))}
-          />
-
-          <div>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Transfer Amount (₹)</label>
-            <input
-              type="number"
-              step="any"
-              inputMode="decimal"
-              placeholder="e.g. 10000.50"
-              value={amountInput}
-              onChange={(e) => setAmountInput(e.target.value)}
-              className="w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-lg font-bold focus:outline-none focus:border-sky-600"
-              required
+              }))}
             />
-          </div>
 
-          {formError && <p className="text-xs text-rose-600 dark:text-rose-400 font-medium">{formError}</p>}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Transfer Amount (₹)</label>
+              <input
+                type="number"
+                step="any"
+                inputMode="decimal"
+                placeholder="e.g. 10000.50"
+                value={amountInput}
+                onChange={(e) => setAmountInput(e.target.value)}
+                className="w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-lg font-bold focus:outline-none focus:border-sky-600"
+                required
+              />
+            </div>
 
-          <div className="flex space-x-3 pt-2">
-            <button
-              type="button"
-              onClick={() => setActiveAction('menu')}
-              className="w-1/3 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-semibold cursor-pointer transition-colors"
-            >
-              Back
-            </button>
-            <button
-              type="submit"
-              className="flex-1 py-3 rounded-2xl bg-sky-600 text-white font-bold text-xs hover:bg-sky-500 shadow-sm cursor-pointer"
-            >
-              Confirm Transfer
-            </button>
-          </div>
-        </form>
+            {formError && <p className="text-xs text-rose-600 dark:text-rose-400 font-medium">{formError}</p>}
+
+            <div className="flex space-x-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setActiveAction('menu')}
+                className="w-1/3 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-semibold cursor-pointer transition-colors"
+              >
+                Back
+              </button>
+              <button
+                type="submit"
+                className="flex-1 py-3 rounded-2xl bg-sky-600 text-white font-bold text-xs hover:bg-sky-500 shadow-sm cursor-pointer"
+              >
+                Confirm Transfer
+              </button>
+            </div>
+          </form>
+        )
       )}
 
       {/* Add Account Form */}
       {activeAction === 'add_account' && (
         <form onSubmit={handleAddAccountSubmit} className="space-y-4">
+          {activeMemberId !== 'all' && (
+            <div className="flex items-center justify-between px-3.5 py-2 rounded-2xl bg-purple-50/70 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 text-xs">
+              <span className="text-[11px] font-bold text-purple-700 dark:text-purple-300">
+                Adding for Profile: <span className="font-extrabold text-purple-900 dark:text-purple-100">{memberDisplayName}</span>
+              </span>
+            </div>
+          )}
           <div className="flex items-center space-x-3 p-3 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-2xl">
             <BankLogo name={accName || (accType === 'demat' ? 'Groww' : 'HDFC Bank')} type={accType} size="md" />
             <div className="flex-1 min-w-0">

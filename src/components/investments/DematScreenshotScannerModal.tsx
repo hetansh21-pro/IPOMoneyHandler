@@ -82,6 +82,25 @@ const BANNED_KEYWORDS = new Set([
   'OVERVIEW', 'NOTIFICATIONS', 'DISMISS', 'CLOSE', 'HELP', 'SUPPORT'
 ]);
 
+// Known Indian broker signatures for auto-detection
+const KNOWN_BROKERS = [
+  { name: 'Groww', patterns: [/groww/i] },
+  { name: 'Zerodha Kite', patterns: [/zerodha/i, /kite/i] },
+  { name: 'Angel One', patterns: [/angel\s*one/i, /angelone/i, /\bangel\b/i] },
+  { name: 'Upstox', patterns: [/upstox/i, /rksv/i] },
+  { name: 'Dhan', patterns: [/\bdhan\b/i, /dhanhq/i] },
+  { name: 'Kotak Neo', patterns: [/kotak\s*neo/i, /kotak\s*securities/i, /\bkotak\b/i] },
+  { name: 'Paytm Money', patterns: [/paytm\s*money/i, /\bpaytm\b/i] },
+  { name: 'HDFC Sky', patterns: [/hdfc\s*sky/i, /hdfc\s*sec/i] },
+  { name: 'ICICI Direct', patterns: [/icici\s*direct/i, /icicidirect/i] },
+  { name: 'INDmoney', patterns: [/indmoney/i, /ind\s*money/i] },
+  { name: 'Motilal Oswal', patterns: [/motilal/i, /mosl/i] },
+  { name: 'Shoonya', patterns: [/shoonya/i, /finvasia/i] },
+  { name: '5Paisa', patterns: [/5paisa/i, /fivepaisa/i] },
+  { name: 'Sharekhan', patterns: [/sharekhan/i] },
+  { name: 'FlatTrade', patterns: [/flattrade/i] },
+];
+
 export function DematScreenshotScannerModal({
   isOpen,
   onClose,
@@ -94,6 +113,7 @@ export function DematScreenshotScannerModal({
   const [selectedAccountId, setSelectedAccountId] = useState<string>(
     defaultAccountId || (dematAccounts[0]?.id ?? '')
   );
+  const [detectedBroker, setDetectedBroker] = useState<{ broker: string; matchedAccountName?: string } | null>(null);
 
   useBackHandler(isOpen, () => {
     onClose();
@@ -132,6 +152,7 @@ export function DematScreenshotScannerModal({
       setPastedText('');
       setIsSuccessImported(false);
       setShowRawText(false);
+      setDetectedBroker(null);
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -142,6 +163,31 @@ export function DematScreenshotScannerModal({
       }
     }
   }, [isOpen, defaultAccountId]);
+
+  /**
+   * Automatically detect broker brand name and auto-select matching Demat account
+   */
+  const detectAndSelectBroker = (text: string) => {
+    if (!text) return null;
+    for (const b of KNOWN_BROKERS) {
+      if (b.patterns.some((p) => p.test(text))) {
+        const firstWord = b.name.toLowerCase().split(' ')[0];
+        const matched = dematAccounts.find((acc) =>
+          acc.name.toLowerCase().includes(firstWord)
+        );
+        if (matched) {
+          setSelectedAccountId(matched.id);
+          const info = { broker: b.name, matchedAccountName: matched.name };
+          setDetectedBroker(info);
+          return info;
+        }
+        const info = { broker: b.name };
+        setDetectedBroker(info);
+        return info;
+      }
+    }
+    return null;
+  };
 
   // Load Tesseract.js script dynamically with multi-CDN fallback
   const ensureTesseractLoaded = useCallback(async (): Promise<any> => {
@@ -255,15 +301,34 @@ export function DematScreenshotScannerModal({
   };
 
   /**
-   * High-precision extractor for Quantity from text chunks
-   * Accurately detects: "Shares", "Qty", "Quantity", "Nos", "Units", "Shs", "Sh", etc.
+   * High-precision extractor for Quantity and Lot Sizes from text chunks
+   * Accurately detects: "Shares", "Qty", "Quantity", "Nos", "Units", "Lots", "Lot of 25", etc.
    */
   const extractQuantityFromText = (text: string): number | null => {
     if (!text || !text.trim()) return null;
 
+    // 0. Explicit Lot multiplier: "2 Lots (30 shares)" or "3 lots x 15" or "1 lot of 25"
+    const lotOfMatch =
+      text.match(/(\d+)\s*lots?\s*(?:of|x|\*)\s*(\d+)/i) ||
+      text.match(/(\d+)\s*lots?\s*\(\s*(\d+)\s*(?:shares|shs|units|nos)?\s*\)/i);
+    if (lotOfMatch) {
+      const lots = parseInt(lotOfMatch[1], 10);
+      const perLot = parseInt(lotOfMatch[2], 10);
+      if (!isNaN(lots) && !isNaN(perLot) && lots > 0 && perLot > 0) {
+        return lots * perLot;
+      }
+    }
+
+    // Single lot with share count: "1 Lot • 15 Shares" or "Lot 1 (25)"
+    const singleLotShares = text.match(/lot\s*(?:size)?[:.\-]?\s*\d+\s*(?:•|\/|\||-)?\s*(\d+)\s*shares/i);
+    if (singleLotShares) {
+      const q = parseInt(singleLotShares[1], 10);
+      if (!isNaN(q) && q > 0) return q;
+    }
+
     // 1. Label followed by number: "Qty: 25", "Shares: 50", "Quantity: 100", "Qty. 10", "Nos: 5", "Units: 10", "Shs: 12"
     const labelFirst = text.match(
-      /(?:Qty|Quantity|Shares|Share|Shs|Sh|Nos|Units|Holding\s*Qty|No\.?\s*of\s*shares)\s*[:.\-–—:=#*]?\s*(\d[\d,]*)\b/i
+      /(?:Qty|Quantity|Shares|Share|Shs|Sh|Nos|Units|Holding\s*Qty|No\.?\s*of\s*shares|Allotted\s*Qty)\s*[:.\-–—:=#*]?\s*(\d[\d,]*)\b/i
     );
     if (labelFirst) {
       const q = parseInt(labelFirst[1].replace(/,/g, ''), 10);
@@ -272,7 +337,7 @@ export function DematScreenshotScannerModal({
 
     // 2. Number followed by label: "25 shares", "50 Shares", "10 Qty", "100 shs", "15 nos", "20 units", "1 share"
     const numberFirst = text.match(
-      /\b(\d[\d,]*)\s*(?:shares|share|shs|sh|qty|quantity|nos|units)\b/i
+      /\b(\d[\d,]*)\s*(?:shares|share|shs|sh|qty|quantity|nos|units|lots?)\b/i
     );
     if (numberFirst) {
       const q = parseInt(numberFirst[1].replace(/,/g, ''), 10);
@@ -670,6 +735,9 @@ export function DematScreenshotScannerModal({
           const recognizedText = result?.data?.text || '';
           setRawExtractedText(recognizedText);
 
+          // Auto-detect broker & match linked account
+          detectAndSelectBroker(recognizedText);
+
           setOcrStatusText('Detecting stock holdings...');
           setOcrProgress(80);
 
@@ -778,6 +846,7 @@ export function DematScreenshotScannerModal({
     setIsOcrLoading(true);
     setOcrStatusText('Verifying stocks from text on NSE/BSE...');
     try {
+      detectAndSelectBroker(pastedText);
       const candidates = extractRawHoldingsCandidates(pastedText);
       const verified = await verifyAndEnrichHoldings(candidates);
 
@@ -943,35 +1012,47 @@ export function DematScreenshotScannerModal({
             />
 
             {/* Target Demat Account Selector */}
-            <CustomDropdown
-              label="Target Demat Account"
-              value={selectedAccountId}
-              onChange={(val) => setSelectedAccountId(val)}
-              themeVariant="emerald"
-              placeholder="General Portfolio (No Specific Demat)"
-              options={[
-                {
-                  value: '',
-                  label: 'General Portfolio (No Specific Demat)',
-                  subLabel: 'Do not assign to a specific Demat',
-                },
-                ...dematAccounts.map((acc) => ({
-                  value: acc.id,
-                  label: acc.name,
-                  subLabel: `Funds: ${formatINR(acc.balance)} • Invested: ${formatINR(acc.investedAmount ?? 0)}`,
-                  badge: acc.type.toUpperCase(),
-                  icon: (
-                    <BankLogo
-                      name={acc.name}
-                      type="demat"
-                      color={acc.color}
-                      size="sm"
-                      className="w-4 h-4 rounded-md !p-0.5"
-                    />
-                  ),
-                })),
-              ]}
-            />
+            <div className="space-y-1.5">
+              <CustomDropdown
+                label="Target Demat Account"
+                value={selectedAccountId}
+                onChange={(val) => setSelectedAccountId(val)}
+                themeVariant="emerald"
+                placeholder="General Portfolio (No Specific Demat)"
+                options={[
+                  {
+                    value: '',
+                    label: 'General Portfolio (No Specific Demat)',
+                    subLabel: 'Do not assign to a specific Demat',
+                  },
+                  ...dematAccounts.map((acc) => ({
+                    value: acc.id,
+                    label: acc.name,
+                    subLabel: `Funds: ${formatINR(acc.balance)} • Invested: ${formatINR(acc.investedAmount ?? 0)}`,
+                    badge: acc.type.toUpperCase(),
+                    icon: (
+                      <BankLogo
+                        name={acc.name}
+                        type="demat"
+                        color={acc.color}
+                        size="sm"
+                        className="w-4 h-4 rounded-md !p-0.5"
+                      />
+                    ),
+                  })),
+                ]}
+              />
+
+              {detectedBroker && (
+                <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-[11px] font-bold text-emerald-800 dark:text-emerald-200 animate-in fade-in">
+                  <Zap className="w-3.5 h-3.5 text-emerald-600 fill-emerald-500 shrink-0" />
+                  <span>
+                    Auto-detected <strong className="font-extrabold">{detectedBroker.broker}</strong>
+                    {detectedBroker.matchedAccountName ? ` → Linked to "${detectedBroker.matchedAccountName}"` : ''}
+                  </span>
+                </div>
+              )}
+            </div>
 
             {/* Error Banner */}
             {errorMessage && (

@@ -17,13 +17,25 @@ function MainAppContent() {
 
   return (
     <MobileShell>
-      <div key={activeTab} className="animate-page-enter w-full">
-        {activeTab === 'home' && <HomeScreen />}
-        {activeTab === 'accounts' && <AccountsScreen />}
-        {activeTab === 'ipos' && <IPOsScreen />}
-        {activeTab === 'transactions' && <TransactionsScreen />}
-        {activeTab === 'holdings' && <HoldingPortfolioScreen />}
-        {activeTab === 'more' && <MoreScreen />}
+      <div className="relative w-full">
+        <div className={`transition-opacity duration-150 ${activeTab === 'home' ? 'block opacity-100' : 'hidden opacity-0'}`}>
+          <HomeScreen />
+        </div>
+        <div className={`transition-opacity duration-150 ${activeTab === 'accounts' ? 'block opacity-100' : 'hidden opacity-0'}`}>
+          <AccountsScreen />
+        </div>
+        <div className={`transition-opacity duration-150 ${activeTab === 'ipos' ? 'block opacity-100' : 'hidden opacity-0'}`}>
+          <IPOsScreen />
+        </div>
+        <div className={`transition-opacity duration-150 ${activeTab === 'transactions' ? 'block opacity-100' : 'hidden opacity-0'}`}>
+          <TransactionsScreen />
+        </div>
+        <div className={`transition-opacity duration-150 ${activeTab === 'holdings' ? 'block opacity-100' : 'hidden opacity-0'}`}>
+          <HoldingPortfolioScreen />
+        </div>
+        <div className={`transition-opacity duration-150 ${activeTab === 'more' ? 'block opacity-100' : 'hidden opacity-0'}`}>
+          <MoreScreen />
+        </div>
       </div>
     </MobileShell>
   );

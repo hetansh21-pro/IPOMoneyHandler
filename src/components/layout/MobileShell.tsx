@@ -16,6 +16,8 @@ import {
   Smartphone,
   Menu,
   History,
+  Users,
+  ChevronDown,
 } from 'lucide-react';
 import { PinLockModal } from '../common/PinLockModal';
 import { QuickActionModal } from '../common/QuickActionModal';
@@ -59,7 +61,12 @@ export function MobileShell({ children }: MobileShellProps) {
     checkAndFetchNewSmsOnOpen,
     addPendingScannedSms,
     accounts,
+    familyMembers,
+    activeMemberId,
+    setIsFamilyModalOpen,
   } = useAppStore();
+
+  const activeMember = familyMembers.find((m) => m.id === activeMemberId);
 
   const [isExitConfirmOpen, setIsExitConfirmOpen] = useState(false);
   const [isHeaderMenuOpen, setIsHeaderMenuOpen] = useState(false);
@@ -93,14 +100,6 @@ export function MobileShell({ children }: MobileShellProps) {
       window.removeEventListener('error', handleWindowError, true);
     };
   }, []);
-
-  // Scroll to top whenever entering a new page or sub-tab
-  useEffect(() => {
-    if (mainRef.current) {
-      mainRef.current.scrollTo({ top: 0, behavior: 'instant' });
-    }
-    window.scrollTo({ top: 0, behavior: 'instant' });
-  }, [activeTab, activeIpoSubTab, activeAccountFilter]);
 
   // Handle Back Action: Detail views -> Subtabs -> Home tab -> Exit confirm
   const handleBackAction = useCallback((): boolean => {
@@ -290,7 +289,7 @@ export function MobileShell({ children }: MobileShellProps) {
       window.removeEventListener('pointerdown', handleUserInteraction);
       window.removeEventListener('keydown', handleUserInteraction);
     };
-  }, [init, fetchLiveIPOs, refreshHoldingsPrices, recordUserActivity, themeMode]);
+  }, [init, fetchLiveIPOs, refreshHoldingsPrices, recordUserActivity]);
 
   const openIposCount = liveIPOs.filter((i) => i.status === 'OPEN').length;
 
@@ -379,7 +378,7 @@ export function MobileShell({ children }: MobileShellProps) {
             </div>
           </div>
 
-          {/* Simple Clean Top Profile Switcher with Sliding Underline Indicator */}
+          {/* Top Profile Switcher with Single Green Dot Indicator */}
           <FamilyProfileSwitcher />
         </header>
 
@@ -387,12 +386,12 @@ export function MobileShell({ children }: MobileShellProps) {
         <main
           ref={mainRef}
           suppressHydrationWarning
-          className="flex-1 px-4 pt-2 pb-[calc(max(env(safe-area-inset-bottom),14px)+5.4rem)] overflow-y-auto z-0 transition-colors duration-200"
+          className="flex-1 px-4 pt-2 pb-[calc(max(env(safe-area-inset-bottom),16px)+6.5rem)] overflow-y-auto z-0 transition-colors duration-200"
         >
           {!isHydrated ? (
             <AppSkeletonLoader />
           ) : (
-            <div key={`${activeTab}_${activeAccountFilter}_${activeIpoSubTab}`} className="animate-page-enter">
+            <div className="w-full">
               {children}
             </div>
           )}

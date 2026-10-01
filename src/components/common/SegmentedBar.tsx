@@ -178,19 +178,25 @@ export function getBankLogoSrc(name: string): string | null {
 }
 
 export function GrowwLogoSvg({ className = 'w-full h-full' }: { className?: string }) {
+  const clipId = React.useId ? `groww-clip-${React.useId().replace(/[:]/g, '')}` : 'groww-circle-clip';
   return (
-    <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+    <svg
+      viewBox="0 0 100 100"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={`rounded-full overflow-hidden ${className}`}
+    >
       <defs>
-        <clipPath id="groww-circle-clip">
-          <circle cx="50" cy="50" r="46" />
+        <clipPath id={clipId}>
+          <circle cx="50" cy="50" r="50" />
         </clipPath>
       </defs>
-      <g clipPath="url(#groww-circle-clip)">
-        {/* Top Indigo / Blue background */}
-        <rect width="100" height="100" fill="#4B65F6" />
+      <g clipPath={`url(#${clipId})`}>
+        {/* Top Indigo / Blue circle background */}
+        <circle cx="50" cy="50" r="50" fill="#4B65F6" />
         {/* Bottom Mint / Teal ascending trend */}
         <path
-          d="M0 64L36 52L54 57L100 29V100H0V64Z"
+          d="M-5 65L34 52L52 58L105 28V105H-5V65Z"
           fill="#00D09C"
         />
       </g>

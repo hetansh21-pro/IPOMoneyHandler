@@ -238,9 +238,6 @@ export function applyThemeToDOM(mode: 'system' | 'light' | 'dark') {
       resolvedDark = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
     }
 
-    // Add smooth CSS transition class for seamless fade
-    document.documentElement.classList.add('theme-transition');
-
     if (resolvedDark) {
       document.documentElement.classList.add('dark');
       document.documentElement.style.colorScheme = 'dark';
@@ -249,22 +246,20 @@ export function applyThemeToDOM(mode: 'system' | 'light' | 'dark') {
       document.documentElement.style.colorScheme = 'light';
     }
 
-    // Sync Capacitor native status bar if on mobile device
-    if (typeof window !== 'undefined') {
-      import('@capacitor/core').then(async ({ Capacitor }) => {
-        if (Capacitor.isNativePlatform()) {
-          try {
-            const { StatusBar, Style } = await import('@capacitor/status-bar');
-            await StatusBar.setStyle({ style: resolvedDark ? Style.Dark : Style.Light });
-            await StatusBar.setOverlaysWebView({ overlay: true });
-          } catch {}
-        }
-      }).catch(() => {});
-    }
-
+    // Sync Capacitor native status bar asynchronously without blocking UI
     setTimeout(() => {
-      document.documentElement.classList.remove('theme-transition');
-    }, 320);
+      if (typeof window !== 'undefined') {
+        import('@capacitor/core').then(async ({ Capacitor }) => {
+          if (Capacitor.isNativePlatform()) {
+            try {
+              const { StatusBar, Style } = await import('@capacitor/status-bar');
+              await StatusBar.setStyle({ style: resolvedDark ? Style.Dark : Style.Light });
+              await StatusBar.setOverlaysWebView({ overlay: true });
+            } catch {}
+          }
+        }).catch(() => {});
+      }
+    }, 40);
   } catch (e) {
     console.error('Error applying theme to DOM:', e);
   }
@@ -378,6 +373,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   init: () => {
     if (typeof window === 'undefined') return;
+    if (get().isHydrated) return;
     try {
       // Determine initial tab: If this is an existing session reload/refresh, restore current tab
       const initialTab = getInitialSessionTab();
@@ -558,16 +554,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         lastSmsScanTimestamp: state.lastSmsScanTimestamp || 0,
       };
       
-      // Async storage write to keep 60fps UI thread during transitions
-      if ('requestIdleCallback' in window) {
-        (window as any).requestIdleCallback(() => {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-        }, { timeout: 100 });
-      } else {
-        setTimeout(() => {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-        }, 0);
-      }
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
     } catch (e) {
       console.error('Failed to save to local storage:', e);
     }

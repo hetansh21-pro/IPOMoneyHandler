@@ -210,6 +210,7 @@ export function MyIPOsScreen({ onSwitchToLive }: MyIPOsScreenProps) {
         onChange={(tabId) => setStatusFilter(tabId as any)}
         size="sm"
         variant="scrollable"
+        pillVariant="underline"
       />
 
       {/* Applications List */}
