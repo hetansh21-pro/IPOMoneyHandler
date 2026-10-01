@@ -79,8 +79,7 @@ export function HoldingPortfolioScreen() {
     });
   }, [investments, accounts, activeMemberId]);
 
-  // If activeMemberId is 'all', show 'ALL' (All Accounts) tab.
-  // If activeMemberId is a specific member ('self', 'fam_dad', etc.), show ONLY that member's Demat accounts!
+  // Demat tabs scoped to the active member (ME, Dad, etc.) with 'All Accounts' to view combined holdings
   const holdingTabs = useMemo(() => {
     const dematTabs = dematAccounts.map((acc) => ({
       id: acc.id,
@@ -88,15 +87,11 @@ export function HoldingPortfolioScreen() {
       count: memberInvestments.filter((i) => i.accountId === acc.id).length,
     }));
 
-    if (activeMemberId === 'all') {
-      return [
-        { id: 'ALL', label: 'All Accounts', count: memberInvestments.length },
-        ...dematTabs,
-      ];
-    }
-
-    return dematTabs;
-  }, [activeMemberId, dematAccounts, memberInvestments]);
+    return [
+      { id: 'ALL', label: 'All Accounts', count: memberInvestments.length },
+      ...dematTabs,
+    ];
+  }, [dematAccounts, memberInvestments]);
 
   // Determine effective selected broker filter
   const selectedBrokerFilter = useMemo(() => {
@@ -105,9 +100,8 @@ export function HoldingPortfolioScreen() {
         return selectedHoldingBrokerFilter;
       }
     }
-    if (activeMemberId === 'all') return 'ALL';
-    return dematAccounts[0]?.id || 'ALL';
-  }, [selectedHoldingBrokerFilter, holdingTabs, activeMemberId, dematAccounts]);
+    return 'ALL';
+  }, [selectedHoldingBrokerFilter, holdingTabs]);
 
   const setSelectedBrokerFilter = setSelectedHoldingBrokerFilter;
   const [searchQuery, setSearchQuery] = useState('');
