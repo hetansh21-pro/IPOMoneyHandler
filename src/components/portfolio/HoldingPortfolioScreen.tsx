@@ -64,22 +64,54 @@ export function HoldingPortfolioScreen() {
     });
   }, [accounts, activeMemberId]);
 
-  // Filter & Search states
-  const selectedBrokerFilter = selectedHoldingBrokerFilter || 'ALL';
+  // Member-scoped investments
+  const memberInvestments = useMemo(() => {
+    return investments.filter((inv) => {
+      if (activeMemberId !== 'all') {
+        if (inv.memberId && inv.memberId !== activeMemberId) return false;
+        if (!inv.memberId) {
+          const linkedAcc = accounts.find((a) => a.id === inv.accountId);
+          if (linkedAcc?.memberId && linkedAcc.memberId !== activeMemberId) return false;
+          if ((!linkedAcc?.memberId || !inv.accountId) && activeMemberId !== 'self') return false;
+        }
+      }
+      return true;
+    });
+  }, [investments, accounts, activeMemberId]);
+
+  // If activeMemberId is 'all', show 'ALL' (All Accounts) tab.
+  // If activeMemberId is a specific member ('self', 'fam_dad', etc.), show ONLY that member's Demat accounts!
+  const holdingTabs = useMemo(() => {
+    const dematTabs = dematAccounts.map((acc) => ({
+      id: acc.id,
+      label: acc.name,
+      count: memberInvestments.filter((i) => i.accountId === acc.id).length,
+    }));
+
+    if (activeMemberId === 'all') {
+      return [
+        { id: 'ALL', label: 'All Accounts', count: memberInvestments.length },
+        ...dematTabs,
+      ];
+    }
+
+    return dematTabs;
+  }, [activeMemberId, dematAccounts, memberInvestments]);
+
+  // Determine effective selected broker filter
+  const selectedBrokerFilter = useMemo(() => {
+    if (selectedHoldingBrokerFilter) {
+      if (holdingTabs.some((t) => t.id === selectedHoldingBrokerFilter)) {
+        return selectedHoldingBrokerFilter;
+      }
+    }
+    if (activeMemberId === 'all') return 'ALL';
+    return dematAccounts[0]?.id || 'ALL';
+  }, [selectedHoldingBrokerFilter, holdingTabs, activeMemberId, dematAccounts]);
+
   const setSelectedBrokerFilter = setSelectedHoldingBrokerFilter;
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'value' | 'pnl' | 'invested' | 'name'>('value');
-
-  // Reset broker filter if currently selected Demat account is not in active member's dematAccounts
-  React.useEffect(() => {
-    if (
-      selectedBrokerFilter !== 'ALL' &&
-      selectedBrokerFilter !== 'UNASSIGNED' &&
-      !dematAccounts.some((a) => a.id === selectedBrokerFilter)
-    ) {
-      setSelectedBrokerFilter('ALL');
-    }
-  }, [activeMemberId, dematAccounts, selectedBrokerFilter, setSelectedBrokerFilter]);
 
   // Modal states
   const [isAddingStock, setIsAddingStock] = useState(false);
@@ -154,21 +186,6 @@ export function HoldingPortfolioScreen() {
     setSellingInvestment(null);
     return true;
   });
-
-  // Member-scoped investments
-  const memberInvestments = useMemo(() => {
-    return investments.filter((inv) => {
-      if (activeMemberId !== 'all') {
-        if (inv.memberId && inv.memberId !== activeMemberId) return false;
-        if (!inv.memberId) {
-          const linkedAcc = accounts.find((a) => a.id === inv.accountId);
-          if (linkedAcc?.memberId && linkedAcc.memberId !== activeMemberId) return false;
-          if ((!linkedAcc?.memberId || !inv.accountId) && activeMemberId !== 'self') return false;
-        }
-      }
-      return true;
-    });
-  }, [investments, accounts, activeMemberId]);
 
   const selectedDematAccount = useMemo(() => {
     if (selectedBrokerFilter === 'ALL' || selectedBrokerFilter === 'UNASSIGNED') return null;
@@ -450,7 +467,7 @@ export function HoldingPortfolioScreen() {
     }
   };
 
-  const brokerTabs = useMemo(() => ['ALL', ...dematAccounts.map((a) => a.id)], [dematAccounts]);
+  const brokerTabs = useMemo(() => holdingTabs.map((t) => t.id), [holdingTabs]);
   const currentBrokerIndex = brokerTabs.indexOf(selectedBrokerFilter);
 
   const handleSwipeLeft = () => {
@@ -594,17 +611,10 @@ export function HoldingPortfolioScreen() {
       {/* Quick Filter & Search Bar with iOS Frosted Glass */}
       <div className="space-y-2.5 ios-glass-card p-3 rounded-2xl">
         {/* Row 1: Broker Filter Tabs with Green Underline */}
-        {dematAccounts.length > 0 && (
+        {holdingTabs.length > 0 && (
           <div className="px-1">
             <SlidingSegmentedTabs
-              tabs={[
-                { id: 'ALL', label: 'All Accounts', count: memberInvestments.length },
-                ...dematAccounts.map((acc) => ({
-                  id: acc.id,
-                  label: acc.name,
-                  count: memberInvestments.filter((i) => i.accountId === acc.id).length,
-                })),
-              ]}
+              tabs={holdingTabs}
               activeId={selectedBrokerFilter}
               onChange={(filterId) => setSelectedBrokerFilter(filterId)}
               size="sm"
