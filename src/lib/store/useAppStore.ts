@@ -76,6 +76,7 @@ export interface AppState {
   tabHistory: ('home' | 'accounts' | 'ipos' | 'transactions' | 'holdings' | 'more')[];
   activeIpoSubTab: 'LIVE' | 'MY_APPLICATIONS';
   activeAccountFilter: 'ALL' | 'BANK' | 'DEMAT' | 'CASH';
+  selectedHoldingBrokerFilter: string;
   searchQuery: string;
 
   // UI state
@@ -94,6 +95,7 @@ export interface AppState {
   setActiveTab: (tab: 'home' | 'accounts' | 'ipos' | 'transactions' | 'holdings' | 'more') => void;
   setActiveIpoSubTab: (tab: 'LIVE' | 'MY_APPLICATIONS') => void;
   setActiveAccountFilter: (filter: 'ALL' | 'BANK' | 'DEMAT' | 'CASH') => void;
+  setSelectedHoldingBrokerFilter: (filter: string) => void;
   setSearchQuery: (query: string) => void;
   handleBackAction: () => boolean;
   setQuickActionOpen: (
@@ -354,6 +356,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   tabHistory: [],
   activeIpoSubTab: 'LIVE',
   activeAccountFilter: 'ALL',
+  selectedHoldingBrokerFilter: 'ALL',
   searchQuery: '',
 
   isAutoSmsSyncEnabled: true,
@@ -643,6 +646,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     set({ activeAccountFilter });
     get().saveToStorage();
+  },
+  setSelectedHoldingBrokerFilter: (selectedHoldingBrokerFilter) => {
+    set({ selectedHoldingBrokerFilter });
   },
   setSearchQuery: (searchQuery) => set({ searchQuery }),
   setQuickActionOpen: (quickActionOpen, action = 'menu', accountId = null) => {

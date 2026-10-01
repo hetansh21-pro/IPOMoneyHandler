@@ -34,15 +34,11 @@ import { useSwipeGesture } from '@/lib/hooks/useSwipeGesture';
 
 const ACCOUNT_FILTERS: Array<'ALL' | 'BANK' | 'DEMAT' | 'CASH'> = ['ALL', 'BANK', 'DEMAT', 'CASH'];
 
-function isBlockedOrAllottedApp(a: IPOApplication) {
-  const isBlocked =
-    a.blockedAmount > 0 ||
-    ['APPLIED', 'MANDATE_PENDING', 'MANDATE_ACCEPTED', 'FUNDS_BLOCKED', 'ALLOTMENT_PENDING'].includes(a.status);
-  const isAllotted =
-    a.lotsAllotted > 0 ||
-    a.allottedAmount > 0 ||
-    ['FULLY_ALLOTTED', 'PARTIALLY_ALLOTTED'].includes(a.status);
-  return isBlocked || isAllotted;
+function isFundBlockedApp(a: IPOApplication) {
+  const isTerminal = ['NOT_ALLOTTED', 'FULLY_ALLOTTED', 'PARTIALLY_ALLOTTED', 'CANCELLED', 'COMPLETED', 'REFUNDED'].includes(a.status);
+  if (isTerminal) return false;
+  const isBlockedStatus = ['APPLIED', 'MANDATE_PENDING', 'MANDATE_ACCEPTED', 'FUNDS_BLOCKED', 'ALLOTMENT_PENDING'].includes(a.status);
+  return (a.blockedAmount > 0) || isBlockedStatus;
 }
 
 export function AccountsScreen() {
@@ -63,6 +59,8 @@ export function AccountsScreen() {
     updateAccount,
     reorderAccounts,
     setAccountAllocations,
+    setActiveTab,
+    setSelectedHoldingBrokerFilter,
   } = useAppStore();
 
   const [isEditingAccount, setIsEditingAccount] = useState(false);
@@ -458,7 +456,7 @@ export function AccountsScreen() {
                   {isDemat ? (
                     (() => {
                       const linkedIpos = applications.filter(
-                        (a) => a.dematAccountId === acc.id && isBlockedOrAllottedApp(a)
+                        (a) => (a.dematAccountId === acc.id || a.accountId === acc.id) && isFundBlockedApp(a)
                       ).length;
                       const investedVal = getDematInvestedValue(acc, investments, accounts);
 
@@ -473,7 +471,7 @@ export function AccountsScreen() {
                             <div className="text-xs font-black text-slate-900 dark:text-slate-100 mt-0.5">{formatINR(acc.balance)}</div>
                           </div>
                           <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-800 text-center">
-                            <span className="text-[9px] text-slate-500 dark:text-slate-400 font-extrabold uppercase tracking-tight block">IPO Linked</span>
+                            <span className="text-[9px] text-slate-500 dark:text-slate-400 font-extrabold uppercase tracking-tight block">Fund Block IPO</span>
                             <div className="text-xs font-black text-slate-800 dark:text-slate-200 mt-0.5">{linkedIpos} {linkedIpos === 1 ? 'IPO' : 'IPOs'}</div>
                           </div>
                         </div>
@@ -640,7 +638,7 @@ export function AccountsScreen() {
                 {selectedAccount.type === 'demat' || selectedAccount.type === 'investment' ? (
                   (() => {
                     const modalLinkedIpos = applications.filter(
-                      (a) => a.dematAccountId === selectedAccount.id && isBlockedOrAllottedApp(a)
+                      (a) => (a.dematAccountId === selectedAccount.id || a.accountId === selectedAccount.id) && isFundBlockedApp(a)
                     ).length;
                     const modalInvestedVal = getDematInvestedValue(selectedAccount, investments, accounts);
 
@@ -659,7 +657,7 @@ export function AccountsScreen() {
                           </div>
                         </div>
                         <div className="p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-center">
-                          <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase block">IPO Linked</span>
+                          <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase block">Fund Block IPO</span>
                           <div className="text-sm font-black text-slate-900 dark:text-slate-100 mt-0.5 truncate">
                             {modalLinkedIpos} {modalLinkedIpos === 1 ? 'IPO' : 'IPOs'}
                           </div>
@@ -742,14 +740,26 @@ export function AccountsScreen() {
                         Demat Holdings ({dematInvestments.length})
                       </h3>
                     </div>
-                    <div className="flex items-center space-x-2">
+                    <div className="flex items-center space-x-1.5">
+                      <button
+                        onClick={() => {
+                          setSelectedAccountDetailId(null);
+                          setSelectedHoldingBrokerFilter(selectedAccount.id);
+                          setActiveTab('holdings');
+                        }}
+                        className="text-[11px] text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 font-bold flex items-center space-x-1 cursor-pointer bg-indigo-100/60 dark:bg-indigo-900/40 px-2 py-1 rounded-xl"
+                        title="Open Holdings Tab for this Demat"
+                      >
+                        <LineChart className="w-3 h-3" />
+                        <span>Holdings</span>
+                      </button>
                       <button
                         onClick={() => {
                           setIsScannerOpen(true);
                         }}
-                        className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 font-bold flex items-center space-x-1 cursor-pointer bg-indigo-100/60 dark:bg-indigo-900/40 px-2.5 py-1 rounded-xl"
+                        className="text-[11px] text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 font-bold flex items-center space-x-1 cursor-pointer bg-indigo-100/60 dark:bg-indigo-900/40 px-2 py-1 rounded-xl"
                       >
-                        <Camera className="w-3.5 h-3.5" />
+                        <Camera className="w-3 h-3" />
                         <span>Scan</span>
                       </button>
                       <button
@@ -758,10 +768,10 @@ export function AccountsScreen() {
                           setSelectedAccountDetailId(null);
                           setQuickActionOpen(true, 'add_investment', accId);
                         }}
-                        className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 font-bold flex items-center space-x-1 cursor-pointer bg-indigo-100/60 dark:bg-indigo-900/40 px-2.5 py-1 rounded-xl"
+                        className="text-[11px] text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 font-bold flex items-center space-x-1 cursor-pointer bg-indigo-100/60 dark:bg-indigo-900/40 px-2 py-1 rounded-xl"
                       >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>Add Stock</span>
+                        <Plus className="w-3 h-3" />
+                        <span>Add</span>
                       </button>
                     </div>
                   </div>
@@ -906,23 +916,23 @@ export function AccountsScreen() {
                 const linkedApps = applications.filter(
                   (a) =>
                     (a.accountId === selectedAccount.id || a.dematAccountId === selectedAccount.id) &&
-                    isBlockedOrAllottedApp(a)
+                    isFundBlockedApp(a)
                 );
 
                 return (
                   <>
                     <div className="flex items-center justify-between">
                       <h3 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-                        Linked IPO Applications
+                        Fund Blocked IPOs
                       </h3>
                       <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">
-                        {linkedApps.length} Active / Allotted
+                        {linkedApps.length} Active Blocked
                       </span>
                     </div>
 
                     {linkedApps.length === 0 ? (
                       <p className="text-xs text-slate-400 dark:text-slate-500 p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 text-center">
-                        No active blocked or allotted IPO applications linked to this {selectedAccount.type === 'demat' ? 'Demat' : 'Bank'} account.
+                        No active fund-blocked IPO applications linked to this {selectedAccount.type === 'demat' ? 'Demat' : 'Bank'} account.
                       </p>
                     ) : (
                       linkedApps.map((app) => {

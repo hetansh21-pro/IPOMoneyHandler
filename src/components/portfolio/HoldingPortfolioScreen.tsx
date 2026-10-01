@@ -48,17 +48,38 @@ export function HoldingPortfolioScreen() {
     refreshHoldingsPrices,
     activeMemberId,
     familyMembers,
+    selectedHoldingBrokerFilter,
+    setSelectedHoldingBrokerFilter,
   } = useAppStore();
 
-  const dematAccounts = useMemo(
-    () => accounts.filter((a) => a.type === 'demat' || a.type === 'investment'),
-    [accounts]
-  );
+  // Member-scoped Demat accounts (Me = only Me demats, Dad = only Dad demats, All = all demats)
+  const dematAccounts = useMemo(() => {
+    return accounts.filter((a) => {
+      if (a.type !== 'demat' && a.type !== 'investment') return false;
+      if (activeMemberId !== 'all') {
+        if (a.memberId && a.memberId !== activeMemberId) return false;
+        if (!a.memberId && activeMemberId !== 'self') return false;
+      }
+      return true;
+    });
+  }, [accounts, activeMemberId]);
 
   // Filter & Search states
-  const [selectedBrokerFilter, setSelectedBrokerFilter] = useState<string>('ALL');
+  const selectedBrokerFilter = selectedHoldingBrokerFilter || 'ALL';
+  const setSelectedBrokerFilter = setSelectedHoldingBrokerFilter;
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'value' | 'pnl' | 'invested' | 'name'>('value');
+
+  // Reset broker filter if currently selected Demat account is not in active member's dematAccounts
+  React.useEffect(() => {
+    if (
+      selectedBrokerFilter !== 'ALL' &&
+      selectedBrokerFilter !== 'UNASSIGNED' &&
+      !dematAccounts.some((a) => a.id === selectedBrokerFilter)
+    ) {
+      setSelectedBrokerFilter('ALL');
+    }
+  }, [activeMemberId, dematAccounts, selectedBrokerFilter, setSelectedBrokerFilter]);
 
   // Modal states
   const [isAddingStock, setIsAddingStock] = useState(false);
@@ -136,17 +157,40 @@ export function HoldingPortfolioScreen() {
 
   // Member-scoped investments
   const memberInvestments = useMemo(() => {
-    if (!activeMemberId || activeMemberId === 'all') return investments;
-    if (activeMemberId === 'self') return investments.filter((inv) => !inv.memberId || inv.memberId === 'self');
-    return investments.filter((inv) => inv.memberId === activeMemberId);
-  }, [investments, activeMemberId]);
+    return investments.filter((inv) => {
+      if (activeMemberId !== 'all') {
+        if (inv.memberId && inv.memberId !== activeMemberId) return false;
+        if (!inv.memberId) {
+          const linkedAcc = accounts.find((a) => a.id === inv.accountId);
+          if (linkedAcc?.memberId && linkedAcc.memberId !== activeMemberId) return false;
+          if ((!linkedAcc?.memberId || !inv.accountId) && activeMemberId !== 'self') return false;
+        }
+      }
+      return true;
+    });
+  }, [investments, accounts, activeMemberId]);
 
-  // Calculate overall portfolio metrics
+  const selectedDematAccount = useMemo(() => {
+    if (selectedBrokerFilter === 'ALL' || selectedBrokerFilter === 'UNASSIGNED') return null;
+    return dematAccounts.find((a) => a.id === selectedBrokerFilter) || null;
+  }, [selectedBrokerFilter, dematAccounts]);
+
+  // Scoped investments for currently active Demat filter
+  const brokerScopeInvestments = useMemo(() => {
+    if (selectedBrokerFilter === 'UNASSIGNED') {
+      return memberInvestments.filter((inv) => !inv.accountId);
+    } else if (selectedBrokerFilter !== 'ALL') {
+      return memberInvestments.filter((inv) => inv.accountId === selectedBrokerFilter);
+    }
+    return memberInvestments;
+  }, [memberInvestments, selectedBrokerFilter]);
+
+  // Calculate overall portfolio metrics dynamically for the selected Demat (or All)
   const portfolioStats = useMemo(() => {
     let totalInvested = 0;
     let totalCurrent = 0;
 
-    memberInvestments.forEach((inv) => {
+    brokerScopeInvestments.forEach((inv) => {
       const curP = inv.currentPrice && inv.currentPrice > 0 ? inv.currentPrice : inv.avgPrice;
       const invVal = inv.quantity * inv.avgPrice;
       const curVal = inv.quantity * curP;
@@ -162,9 +206,9 @@ export function HoldingPortfolioScreen() {
       totalCurrent,
       totalPnl,
       totalPnlPct,
-      count: memberInvestments.length,
+      count: brokerScopeInvestments.length,
     };
-  }, [memberInvestments]);
+  }, [brokerScopeInvestments]);
 
   // Filtered & Sorted Stock list
   const filteredInvestments = useMemo(() => {
@@ -455,9 +499,22 @@ export function HoldingPortfolioScreen() {
         <div className="relative z-10 space-y-4">
           <div className="flex items-start justify-between">
             <div>
-              <span className="text-[10px] font-extrabold text-indigo-300 uppercase tracking-wider block">
-                Current Portfolio Value
-              </span>
+              <div className="flex items-center space-x-1.5">
+                {selectedDematAccount && (
+                  <BankLogo
+                    name={selectedDematAccount.name}
+                    type="demat"
+                    color={selectedDematAccount.color}
+                    size="sm"
+                    className="w-4 h-4 rounded-md !p-0.5"
+                  />
+                )}
+                <span className="text-[10px] font-extrabold text-indigo-300 uppercase tracking-wider block">
+                  {selectedDematAccount
+                    ? `${selectedDematAccount.name} Portfolio Value`
+                    : 'All Demat Portfolio Value'}
+                </span>
+              </div>
               <div className="text-3xl font-black tracking-tight mt-0.5 text-white">
                 {formatINR(portfolioStats.totalCurrent)}
               </div>
@@ -541,11 +598,11 @@ export function HoldingPortfolioScreen() {
           <div className="px-1">
             <SlidingSegmentedTabs
               tabs={[
-                { id: 'ALL', label: 'All Accounts', count: investments.length },
+                { id: 'ALL', label: 'All Accounts', count: memberInvestments.length },
                 ...dematAccounts.map((acc) => ({
                   id: acc.id,
                   label: acc.name,
-                  count: investments.filter((i) => i.accountId === acc.id).length,
+                  count: memberInvestments.filter((i) => i.accountId === acc.id).length,
                 })),
               ]}
               activeId={selectedBrokerFilter}
@@ -558,7 +615,7 @@ export function HoldingPortfolioScreen() {
         )}
 
         {/* Row 2: Search & Sort Toolbar Underneath */}
-        {investments.length > 0 && (
+        {memberInvestments.length > 0 && (
           <div className="flex items-center gap-2 pt-1.5 border-t border-slate-100 dark:border-slate-800/80">
             <div className="relative flex-1">
               <Search className="w-3.5 h-3.5 absolute left-2.5 top-2 text-slate-400" />
@@ -616,21 +673,32 @@ export function HoldingPortfolioScreen() {
           </div>
           <div>
             <h3 className="text-sm font-black text-slate-900 dark:text-slate-100">
-              {investments.length === 0 ? 'No Stock Holdings Yet' : 'No Matching Stocks'}
+              {selectedDematAccount
+                ? `No Holdings in ${selectedDematAccount.name}`
+                : investments.length === 0
+                ? 'No Stock Holdings Yet'
+                : 'No Matching Stocks'}
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-[260px] mx-auto">
-              {investments.length === 0
+              {selectedDematAccount
+                ? `Add or scan stocks into ${selectedDematAccount.name} to track live performance.`
+                : investments.length === 0
                 ? 'Add your stocks manually or scan your Zerodha, Groww, AngelOne broker screenshots.'
                 : 'Try adjusting your search query or broker filters.'}
             </p>
           </div>
-          {investments.length === 0 && (
+          {(investments.length === 0 || (selectedDematAccount && filteredInvestments.length === 0)) && (
             <div className="flex items-center justify-center space-x-2 pt-2">
               <button
-                onClick={() => setIsAddingStock(true)}
+                onClick={() => {
+                  if (selectedDematAccount) {
+                    setNewAccountId(selectedDematAccount.id);
+                  }
+                  setIsAddingStock(true);
+                }}
                 className="px-4 py-2.5 rounded-2xl bg-emerald-600 text-white font-bold text-xs shadow-sm cursor-pointer"
               >
-                Add First Stock
+                Add Stock
               </button>
               <button
                 onClick={() => setIsScannerOpen(true)}
