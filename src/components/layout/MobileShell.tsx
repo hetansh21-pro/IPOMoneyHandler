@@ -28,6 +28,7 @@ import { FamilyManagementModal } from '../common/FamilyManagementModal';
 import { FamilyProfileSwitcher } from '../common/FamilyProfileSwitcher';
 import { HeaderDropdownMenu } from '../common/HeaderDropdownMenu';
 import { AppSkeletonLoader } from '../common/AppSkeletonLoader';
+import { executeRegisteredBackHandlers } from '@/lib/navigation/backNavigation';
 
 interface MobileShellProps {
   children: React.ReactNode;
@@ -101,8 +102,12 @@ export function MobileShell({ children }: MobileShellProps) {
     };
   }, []);
 
-  // Handle Back Action: Detail views -> Subtabs -> Home tab -> Exit confirm
+  // Handle Back Action: Registered Modal/BottomSheet Handlers -> Detail views -> Subtabs -> Home tab -> Exit confirm
   const handleBackAction = useCallback((): boolean => {
+    // 1. Highest Priority: Execute active registered handlers (BottomSheets, Modals, Dialogs, Dropdowns)
+    if (executeRegisteredBackHandlers()) {
+      return true;
+    }
     if (isHeaderMenuOpen) {
       setIsHeaderMenuOpen(false);
       return true;
@@ -139,12 +144,14 @@ export function MobileShell({ children }: MobileShellProps) {
     activeAccountFilter,
     activeTab,
     activeIpoSubTab,
+    isHeaderMenuOpen,
     setSelectedAccountDetailId,
     setSelectedIPODetailId,
     setSelectedAppDetailId,
     setActiveAccountFilter,
     setActiveIpoSubTab,
     setActiveTab,
+    setIsHeaderMenuOpen,
   ]);
 
   // Back Navigation: Android Capacitor Hardware Button + Browser Popstate
