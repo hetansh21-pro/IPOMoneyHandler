@@ -13,27 +13,25 @@ import com.getcapacitor.BridgeActivity;
 public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        registerPlugin(SmsReaderPlugin.class);
         super.onCreate(savedInstanceState);
 
         Window window = getWindow();
         window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
         window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
         
+        // Enable Edge-to-Edge full screen so app covers the whole mobile screen seamlessly
+        WindowCompat.setDecorFitsSystemWindows(window, false);
+
         int nightModeFlags = getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
         boolean isNightMode = nightModeFlags == Configuration.UI_MODE_NIGHT_YES;
 
-        if (isNightMode) {
-            window.setStatusBarColor(Color.parseColor("#0b1120"));
-            window.setNavigationBarColor(Color.parseColor("#0b1120"));
-        } else {
-            window.setStatusBarColor(Color.parseColor("#0f172a"));
-            window.setNavigationBarColor(Color.WHITE);
-        }
-
-        WindowCompat.setDecorFitsSystemWindows(window, true);
-
         WindowInsetsControllerCompat controller = new WindowInsetsControllerCompat(window, window.getDecorView());
-        controller.setAppearanceLightStatusBars(false); // White icons on dark bar
+
+        window.setStatusBarColor(Color.TRANSPARENT);
+        window.setNavigationBarColor(Color.TRANSPARENT);
+
+        controller.setAppearanceLightStatusBars(!isNightMode);
         controller.setAppearanceLightNavigationBars(!isNightMode);
     }
 }

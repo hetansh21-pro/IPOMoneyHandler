@@ -89,6 +89,38 @@ export function getAccountAvailableBalance(
 }
 
 /**
+ * Calculates the dynamic invested value for a specific Demat/Investment account from live holdings
+ */
+export function getDematInvestedValue(
+  account: Account,
+  investments: Investment[] = [],
+  allAccounts: Account[] = []
+): number {
+  const linked = investments.filter((inv) => inv.accountId === account.id);
+  if (linked.length > 0) {
+    return linked.reduce(
+      (sum, inv) => sum + inv.quantity * (inv.currentPrice || inv.avgPrice),
+      0
+    );
+  }
+
+  const dematAccounts = allAccounts.filter(
+    (a) => a.type === 'demat' || a.type === 'investment'
+  );
+  if (dematAccounts.length === 1 && dematAccounts[0].id === account.id) {
+    const unassigned = investments.filter((inv) => !inv.accountId);
+    if (unassigned.length > 0) {
+      return unassigned.reduce(
+        (sum, inv) => sum + inv.quantity * (inv.currentPrice || inv.avgPrice),
+        0
+      );
+    }
+  }
+
+  return account.investedAmount ?? 0;
+}
+
+/**
  * Calculates complete system money summary without double counting
  */
 export function calculateMoneySummary(
@@ -129,16 +161,21 @@ export function calculateMoneySummary(
     }
   }
 
-  // Invested Money includes manual investment holdings value + demat investedAmount
-  const manualInvestmentsTotal = investments.reduce(
+  // Invested Money includes manual investment holdings value + unlinked demat investedAmount
+  let investedMoney = investments.reduce(
     (sum, inv) => sum + inv.quantity * (inv.currentPrice || inv.avgPrice),
     0
   );
-  const dematInvestedTotal = accounts
-    .filter((acc) => acc.type === 'demat' || acc.type === 'investment')
-    .reduce((sum, acc) => sum + (acc.investedAmount ?? 0), 0);
-
-  const investedMoney = Math.round((manualInvestmentsTotal + dematInvestedTotal) * 100) / 100;
+  const dematAccounts = accounts.filter(
+    (acc) => acc.type === 'demat' || acc.type === 'investment'
+  );
+  for (const demat of dematAccounts) {
+    const hasLinkedHoldings = investments.some((inv) => inv.accountId === demat.id);
+    if (!hasLinkedHoldings && (dematAccounts.length > 1 || investments.length === 0)) {
+      investedMoney += demat.investedAmount ?? 0;
+    }
+  }
+  investedMoney = Math.round(investedMoney * 100) / 100;
 
   const totalTrackedMoney = Math.round((totalLiquid + investedMoney) * 100) / 100;
   const availableMoney = Math.max(0, Math.round((totalLiquid - totalBlocked) * 100) / 100);

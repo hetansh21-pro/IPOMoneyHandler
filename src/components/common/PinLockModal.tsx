@@ -85,7 +85,7 @@ export function PinLockModal() {
           <button
             key={num}
             onClick={() => handleDigit(num.toString())}
-            className="w-16 h-16 mx-auto rounded-full bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xl font-semibold text-slate-800 dark:text-slate-100 flex items-center justify-center active:bg-slate-100 dark:active:bg-slate-700 active:scale-95 transition-all shadow-xs cursor-pointer"
+            className="w-16 h-16 mx-auto rounded-full bg-slate-100/80 dark:bg-slate-800/80 backdrop-blur-xl border border-white/60 dark:border-white/10 text-xl font-semibold text-slate-800 dark:text-slate-100 flex items-center justify-center active:bg-slate-200/90 dark:active:bg-slate-700/90 active:scale-95 transition-all shadow-xs cursor-pointer"
           >
             {num}
           </button>
@@ -94,13 +94,13 @@ export function PinLockModal() {
         <div className="w-16 h-16 mx-auto" />
         <button
           onClick={() => handleDigit('0')}
-          className="w-16 h-16 mx-auto rounded-full bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xl font-semibold text-slate-800 dark:text-slate-100 flex items-center justify-center active:bg-slate-100 dark:active:bg-slate-700 active:scale-95 transition-all shadow-xs cursor-pointer"
+          className="w-16 h-16 mx-auto rounded-full bg-slate-100/80 dark:bg-slate-800/80 backdrop-blur-xl border border-white/60 dark:border-white/10 text-xl font-semibold text-slate-800 dark:text-slate-100 flex items-center justify-center active:bg-slate-200/90 dark:active:bg-slate-700/90 active:scale-95 transition-all shadow-xs cursor-pointer"
         >
           0
         </button>
         <button
           onClick={handleDelete}
-          className="w-16 h-16 mx-auto rounded-full bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 flex items-center justify-center active:bg-slate-100 dark:active:bg-slate-700 active:scale-95 transition-all shadow-xs cursor-pointer"
+          className="w-16 h-16 mx-auto rounded-full bg-slate-100/80 dark:bg-slate-800/80 backdrop-blur-xl border border-white/60 dark:border-white/10 text-slate-500 dark:text-slate-400 flex items-center justify-center active:bg-slate-200/90 dark:active:bg-slate-700/90 active:scale-95 transition-all shadow-xs cursor-pointer"
           aria-label="Delete digit"
         >
           <Delete className="w-6 h-6" />

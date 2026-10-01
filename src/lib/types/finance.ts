@@ -1,3 +1,17 @@
+export type FamilyRelation = 'Self' | 'Father' | 'Mother' | 'Brother' | 'Sister' | 'Spouse' | 'Son' | 'Daughter' | 'Other';
+
+export interface FamilyMember {
+  id: string;
+  name: string;
+  relation: FamilyRelation;
+  avatarColor?: string;
+  panNumber?: string;
+  dematId?: string;
+  upiId?: string;
+  isDefault?: boolean;
+  createdAt: string;
+}
+
 export type AccountType = 'bank' | 'cash' | 'demat' | 'wallet' | 'investment' | 'other';
 
 export interface Account {
@@ -7,6 +21,8 @@ export interface Account {
   initialBalance: number;
   balance: number; // Current nominal balance (cash/funds on record)
   investedAmount?: number; // Current equity/stock holdings value for Demat/Investment accounts
+  accountNumber?: string; // Optional last 4 or full account number
+  memberId?: string; // Family Member Profile ID (defaults to 'self')
   currency: string; // Default 'INR'
   notes?: string;
   icon?: string;
@@ -32,6 +48,7 @@ export type TransactionType =
 export interface Transaction {
   id: string;
   accountId: string;
+  memberId?: string;
   type: TransactionType;
   amount: number;
   description: string;
@@ -83,8 +100,21 @@ export interface IPO {
   lotSize: number;
   minimumInvestment: number;
   issueSize?: string;
+  gmp?: number;
+  gmpPercent?: number;
   subscriptionData?: IPOSubscriptionInfo;
-  gmp?: number; // Grey Market Premium
+  freshIssue?: string;
+  offerForSale?: string;
+  issueType?: string;
+  faceValue?: string;
+  refundDate?: string;
+  creditDate?: string;
+  retailMaxLots?: number;
+  retailMaxAmount?: number;
+  hniMinLots?: number;
+  hniMinAmount?: number;
+  chittorgarhUrl?: string;
+  aboutCompany?: string;
   source: string;
   lastUpdated: string;
 }
@@ -117,6 +147,7 @@ export interface IPOApplication {
   symbol: string;
   accountId: string; // Virtual bank account used for mandate/fund block
   dematAccountId?: string; // Virtual Demat account where shares are received
+  memberId?: string; // Family Member Profile ID (e.g. 'self', 'dad', 'brother')
   lotsApplied: number;
   lotsAllotted: number;
   applicationPrice: number;
@@ -134,14 +165,53 @@ export interface IPOApplication {
 export interface Investment {
   id: string;
   accountId?: string;
+  memberId?: string; // Family Member Profile ID
   symbol: string;
   name: string;
   quantity: number;
   avgPrice: number;
   currentPrice: number;
+  dayChange?: number;
+  dayChangePercent?: number;
+  lastPriceUpdatedAt?: string;
+  isIpoAllotted?: boolean;
+  ipoApplicationId?: string;
   notes?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export type SmsMessageType = 'DEBIT' | 'CREDIT' | 'IPO_BLOCKED' | 'IPO_RELEASED' | 'BALANCE_UPDATE';
+
+export interface ParsedSmsTransaction {
+  id: string;
+  rawText: string;
+  sender: string;
+  date: string;
+  type: SmsMessageType;
+  amount: number;
+  bankName?: string;
+  source?: 'sms' | 'notification' | 'merged';
+  accountNumber?: string; // e.g., "XX1234"
+  merchantOrSender?: string; // e.g., "SWIGGY", "AMAZON", "SALARY"
+  availableBalance?: number;
+  ipoName?: string;
+  mandateRef?: string;
+  suggestedAccountId?: string;
+  suggestedAccountName?: string;
+  isDuplicate?: boolean;
+  selected?: boolean;
+}
+
+export interface AutoSyncNotification {
+  id: string;
+  title: string;
+  description: string;
+  type: SmsMessageType;
+  amount: number;
+  accountName: string;
+  timestamp: string;
+  availableBalance?: number;
 }
 
 export interface Snapshot {

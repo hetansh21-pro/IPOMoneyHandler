@@ -72,14 +72,24 @@ export function formatDate(dateStr?: string): string {
 }
 
 /**
- * Formats date range (e.g. '18 Sep → 22 Sep')
+ * Formats date range cleanly (e.g. '24 Sep – 28 Sep')
  */
 export function formatDateRange(startStr?: string, endStr?: string): string {
   if (!startStr) return 'N/A';
-  const start = formatDate(startStr).replace(/\s\d{4}$/, '');
-  if (!endStr) return start;
-  const end = formatDate(endStr);
-  return `${start} → ${end}`;
+  try {
+    const startObj = new Date(startStr);
+    const start = isNaN(startObj.getTime())
+      ? startStr
+      : startObj.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+    if (!endStr) return start;
+    const endObj = new Date(endStr);
+    const end = isNaN(endObj.getTime())
+      ? endStr
+      : endObj.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+    return `${start} – ${end}`;
+  } catch {
+    return `${startStr} – ${endStr || ''}`;
+  }
 }
 
 /**
@@ -154,6 +164,99 @@ export function formatTime(dateStr?: string): string {
     });
   } catch {
     return '';
+  }
+}
+
+/**
+ * Security: Fast Salted PIN Hasher (prevents cleartext PIN storage)
+ */
+export function hashPinSync(pin: string): string {
+  if (!pin) return '';
+  const salt = 'ipo_money_sec_salt_2026_';
+  let h1 = 0xdeadbeef ^ 37;
+  let h2 = 0x41c6ce57 ^ 37;
+  const str = salt + pin;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507);
+  h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
+  h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return 'v2_' + (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16);
+}
+
+/**
+ * Security: Verify PIN against stored hash or legacy plaintext PIN
+ */
+export function verifyPinSync(enteredPin: string, storedPinOrHash: string | null): boolean {
+  if (!storedPinOrHash || !enteredPin) return false;
+  if (storedPinOrHash === enteredPin) return true;
+  return hashPinSync(enteredPin) === storedPinOrHash;
+}
+
+/**
+ * Security: Deep sanitization of imported JSON backups to prevent prototype pollution and malformed records
+ */
+export function sanitizeImportPayload(raw: any): { isValid: boolean; sanitized?: any; error?: string } {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { isValid: false, error: 'Invalid backup format. Expected a valid JSON object.' };
+  }
+
+  const cleanObject = (obj: any): any => {
+    if (obj === null || typeof obj !== 'object') return obj;
+    if (Array.isArray(obj)) return obj.map(cleanObject);
+
+    const safe: Record<string, any> = {};
+    for (const key of Object.keys(obj)) {
+      if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+        continue;
+      }
+      safe[key] = cleanObject(obj[key]);
+    }
+    return safe;
+  };
+
+  try {
+    const cleaned = cleanObject(raw);
+    const accounts = Array.isArray(cleaned.accounts) ? cleaned.accounts : [];
+    const transactions = Array.isArray(cleaned.transactions) ? cleaned.transactions : [];
+    const applications = Array.isArray(cleaned.applications) ? cleaned.applications : [];
+    const investments = Array.isArray(cleaned.investments) ? cleaned.investments : [];
+    const allocations = Array.isArray(cleaned.allocations) ? cleaned.allocations : [];
+    const snapshots = Array.isArray(cleaned.snapshots) ? cleaned.snapshots : [];
+    const reminders = Array.isArray(cleaned.reminders) ? cleaned.reminders : [];
+
+    const safeAccounts = accounts.map((acc: any) => ({
+      ...acc,
+      balance: typeof acc.balance === 'number' && !isNaN(acc.balance) ? acc.balance : 0,
+      investedAmount: typeof acc.investedAmount === 'number' && !isNaN(acc.investedAmount) ? acc.investedAmount : undefined,
+    }));
+
+    const safeTransactions = transactions
+      .map((t: any) => ({
+        ...t,
+        amount: typeof t.amount === 'number' && !isNaN(t.amount) && t.amount > 0 ? t.amount : 0,
+      }))
+      .filter((t: any) => t.amount > 0);
+
+    return {
+      isValid: true,
+      sanitized: {
+        ...cleaned,
+        accounts: safeAccounts,
+        transactions: safeTransactions,
+        applications,
+        investments,
+        allocations,
+        snapshots,
+        reminders,
+      },
+    };
+  } catch (err: any) {
+    return { isValid: false, error: err?.message || 'Data sanitization failed.' };
   }
 }
 

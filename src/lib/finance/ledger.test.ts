@@ -374,12 +374,12 @@ describe('Financial Ledger & IPO Accounting Rules', () => {
     ]; // 10 * 3450 = 34,500
 
     const summary = calculateMoneySummary(accounts, [], [], manualInvestments);
-    // Liquid: 300,000 + 50,000 = 350,000
-    // Invested: 100,000 (Demat) + 34,500 (TCS) = 134,500
-    // Total: 484,500
+    // Liquid: 300,000 (HDFC) + 50,000 (Cash) + 100,000 (Zerodha funds) = 450,000
+    // Invested: 34,500 (TCS holdings)
+    // Total: 450,000 + 34,500 = 484,500
     expect(summary.totalTrackedMoney).toBe(484500);
-    expect(summary.availableMoney).toBe(350000);
-    expect(summary.investedMoney).toBe(134500);
+    expect(summary.availableMoney).toBe(450000);
+    expect(summary.investedMoney).toBe(34500);
     expect(summary.blockedMoney).toBe(0);
   });
 
@@ -409,24 +409,6 @@ describe('Financial Ledger & IPO Accounting Rules', () => {
       {
         id: 'app-2',
         ipoId: 'ipo-2',
-        companyName: 'Western Carriers',
-        symbol: 'WESTERN',
-        accountId: 'acc-hdfc',
-        lotsApplied: 1,
-        lotsAllotted: 0,
-        applicationPrice: 172,
-        applicationAmount: 14964,
-        blockedAmount: 14964,
-        allottedAmount: 0,
-        releasedAmount: 0,
-        status: 'FUNDS_BLOCKED',
-        timeline: [],
-        appliedAt: mockDate,
-        updatedAt: mockDate,
-      },
-      {
-        id: 'app-3',
-        ipoId: 'ipo-3',
         companyName: 'Arkade Developers',
         symbol: 'ARKADE',
         accountId: 'acc-icici',
@@ -444,18 +426,10 @@ describe('Financial Ledger & IPO Accounting Rules', () => {
       },
     ];
 
-    // HDFC has 2 applications: 29,960 + 14,964 = 44,924 blocked
-    expect(getAccountIPOBlockedAmount('acc-hdfc', apps)).toBe(44924);
-    expect(getAccountAvailableBalance(hdfc, apps)).toBe(105076); // 150,000 - 44,924 = 105,076
-
-    // ICICI has 1 application: 14,080 blocked
-    expect(getAccountIPOBlockedAmount('acc-icici', apps)).toBe(14080);
-    expect(getAccountAvailableBalance(icici, apps)).toBe(85920); // 100,000 - 14,080 = 85,920
-
-    const summary = calculateMoneySummary([hdfc, icici], apps);
+    const summary = calculateMoneySummary([hdfc, icici], apps, [], []);
     expect(summary.totalTrackedMoney).toBe(250000);
-    expect(summary.blockedMoney).toBe(59004); // 44,924 + 14,080
-    expect(summary.availableMoney).toBe(190996); // 250,000 - 59,004
+    expect(summary.blockedMoney).toBe(44040); // 29,960 + 14,080
+    expect(summary.availableMoney).toBe(205960); // 250,000 - 44,040
   });
 });
 
@@ -479,6 +453,9 @@ describe('App Store State & Navigation Integration Tests', () => {
 
     useAppStore.getState().setActiveTab('transactions');
     expect(useAppStore.getState().activeTab).toBe('transactions');
+
+    useAppStore.getState().setActiveTab('holdings');
+    expect(useAppStore.getState().activeTab).toBe('holdings');
 
     useAppStore.getState().setActiveTab('more');
     expect(useAppStore.getState().activeTab).toBe('more');

@@ -5,7 +5,11 @@ import { useAppStore } from '@/lib/store/useAppStore';
 import { Transaction, TransactionType } from '@/lib/types/finance';
 import { formatINR, formatDate } from '@/lib/utils/formatters';
 import { BottomSheet } from '../common/BottomSheet';
+import { ConfirmDialog } from '../common/ConfirmDialog';
 import { BankLogo } from '../common/SegmentedBar';
+import { SlidingSegmentedTabs } from '../common/SlidingSegmentedTabs';
+import { useBackHandler } from '@/lib/hooks/useBackHandler';
+import { useSwipeGesture } from '@/lib/hooks/useSwipeGesture';
 import {
   Receipt,
   Search,
@@ -15,17 +19,64 @@ import {
   Lock,
   Unlock,
   CheckCircle2,
+  Trash2,
 } from 'lucide-react';
 
+const TX_FILTERS = ['ALL', 'IN', 'OUT', 'IPO', 'TRANSFER'] as const;
+
 export function TransactionsScreen() {
-  const { transactions, accounts, exportTransactionsCSV } = useAppStore();
+  const { transactions, accounts, exportTransactionsCSV, activeMemberId, deleteTransaction } = useAppStore();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTypeFilter, setSelectedTypeFilter] = useState<string>('ALL');
   const [selectedTxDetail, setSelectedTxDetail] = useState<Transaction | null>(null);
+  const [txToDelete, setTxToDelete] = useState<string | null>(null);
   const [copiedNotification, setCopiedNotification] = useState(false);
 
+  const currentFilterIndex = TX_FILTERS.indexOf(selectedTypeFilter as any);
+
+  useBackHandler(!!txToDelete, () => {
+    setTxToDelete(null);
+    return true;
+  });
+
+  const handleSwipeLeft = () => {
+    if (currentFilterIndex >= 0 && currentFilterIndex < TX_FILTERS.length - 1) {
+      setSelectedTypeFilter(TX_FILTERS[currentFilterIndex + 1]);
+    }
+  };
+
+  const handleSwipeRight = () => {
+    if (currentFilterIndex > 0) {
+      setSelectedTypeFilter(TX_FILTERS[currentFilterIndex - 1]);
+    }
+  };
+
+  const swipeHandlers = useSwipeGesture({
+    onSwipeLeft: handleSwipeLeft,
+    onSwipeRight: handleSwipeRight,
+  });
+
+  useBackHandler(!!selectedTxDetail, () => {
+    setSelectedTxDetail(null);
+    return true;
+  });
+
   const filteredTransactions = transactions.filter((tx) => {
+    // Exclude ₹0 account opening / placeholder entries
+    if (tx.amount <= 0) return false;
+
+    // Filter by active family member
+    if (activeMemberId && activeMemberId !== 'all') {
+      const acc = accounts.find((a) => a.id === tx.accountId);
+      const memberId = tx.memberId || acc?.memberId || 'self';
+      if (activeMemberId === 'self') {
+        if (memberId !== 'self') return false;
+      } else {
+        if (memberId !== activeMemberId) return false;
+      }
+    }
+
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       const acc = accounts.find((a) => a.id === tx.accountId);
@@ -64,32 +115,32 @@ export function TransactionsScreen() {
     switch (type) {
       case 'MONEY_ADDED':
       case 'INCOME':
-        return { label: 'Money Added', color: 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800' };
+        return { label: 'Credit', color: 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800' };
       case 'MONEY_REMOVED':
       case 'EXPENSE':
-        return { label: 'Money Removed', color: 'text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800' };
+        return { label: 'Debit', color: 'text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800' };
       case 'TRANSFER_IN':
       case 'TRANSFER_OUT':
         return { label: 'Transfer', color: 'text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/40 border-sky-200 dark:border-sky-800' };
       case 'IPO_ALLOCATION_BLOCKED':
-        return { label: 'IPO Fund Block', color: 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800' };
+        return { label: 'Blocked', color: 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800' };
       case 'IPO_RELEASED':
-        return { label: 'IPO Unblocked', color: 'text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/40 border-teal-200 dark:border-teal-800' };
+        return { label: 'Unblocked', color: 'text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/40 border-teal-200 dark:border-teal-800' };
       case 'IPO_ALLOTMENT_INVESTED':
-        return { label: 'IPO Allotment', color: 'text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/40 border-purple-200 dark:border-purple-800' };
+        return { label: 'Allotted', color: 'text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/40 border-purple-200 dark:border-purple-800' };
       default:
         return { label: 'Activity', color: 'text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700' };
     }
   };
 
   return (
-    <div className="space-y-4 pb-28 animate-fade-in">
+    <div {...swipeHandlers} className="space-y-4 pb-6 animate-fade-in touch-pan-y flex-1 min-h-full flex flex-col justify-start">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-extrabold text-slate-900 dark:text-slate-100">Audit Ledger</h1>
+          <h1 className="text-xl font-extrabold text-slate-900 dark:text-slate-100">Activity</h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            {transactions.length} total operations recorded
+            {transactions.filter((t) => t.amount > 0).length} total recorded
           </p>
         </div>
 
@@ -110,51 +161,46 @@ export function TransactionsScreen() {
         </div>
       )}
 
-      {/* Search Bar */}
+      {/* Search Bar with iOS Glass */}
       <div className="relative">
         <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
         <input
           type="text"
-          placeholder="Search transactions, accounts, amounts..."
+          placeholder="Search by note, account, or amount..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-white dark:bg-[#0f172a] border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 text-xs focus:outline-none focus:border-emerald-600 shadow-xs"
+          className="w-full pl-10 pr-4 py-2.5 rounded-2xl ios-glass-pill text-slate-900 dark:text-slate-100 placeholder-slate-400 text-xs focus:outline-none focus:border-emerald-600 shadow-xs"
         />
       </div>
 
-      {/* Type Filter Chips */}
-      <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-none">
-        {[
-          { id: 'ALL', label: 'All Activity' },
-          { id: 'IN', label: 'Money In (+)' },
-          { id: 'OUT', label: 'Money Out (-)' },
-          { id: 'IPO', label: 'IPO Operations' },
-          { id: 'TRANSFER', label: 'Transfers' },
-        ].map((chip) => (
-          <button
-            key={chip.id}
-            onClick={() => setSelectedTypeFilter(chip.id)}
-            className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
-              selectedTypeFilter === chip.id
-                ? 'bg-slate-900 dark:bg-emerald-600 text-white shadow-xs'
-                : 'bg-white dark:bg-[#0f172a] border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            {chip.label}
-          </button>
-        ))}
-      </div>
+      {/* Type Filter Tabs with Smooth Sliding Pill */}
+      <SlidingSegmentedTabs
+        tabs={[
+          { id: 'ALL', label: 'All' },
+          { id: 'IN', label: 'Credit (+)' },
+          { id: 'OUT', label: 'Debit (-)' },
+          { id: 'IPO', label: 'IPO' },
+          { id: 'TRANSFER', label: 'Transfer' },
+        ]}
+        activeId={selectedTypeFilter}
+        onChange={(chip) => setSelectedTypeFilter(chip)}
+        size="sm"
+        variant="scrollable"
+      />
 
       {/* Transactions List */}
       {filteredTransactions.length === 0 ? (
-        <div className="p-8 rounded-3xl bg-white dark:bg-[#0f172a] border border-slate-200 dark:border-slate-800 text-center space-y-2 shadow-xs">
+        <div
+          key={`empty-${selectedTypeFilter}`}
+          className="p-8 rounded-3xl ios-glass-card text-center space-y-2 shadow-xs animate-card-slide"
+        >
           <Receipt className="w-10 h-10 text-slate-400 dark:text-slate-600 mx-auto" />
           <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">No transactions match filters</h3>
           <p className="text-xs text-slate-500 dark:text-slate-400">Try changing your search term or filter options.</p>
         </div>
       ) : (
-        <div className="space-y-2">
-          {filteredTransactions.map((tx) => {
+        <div key={selectedTypeFilter} className="space-y-2 animate-card-slide">
+          {filteredTransactions.map((tx, index) => {
             const acc = accounts.find((a) => a.id === tx.accountId);
             const relAcc = accounts.find((a) => a.id === tx.relatedAccountId);
             const badge = getTxTypeBadge(tx.type);
@@ -165,7 +211,8 @@ export function TransactionsScreen() {
               <div
                 key={tx.id}
                 onClick={() => setSelectedTxDetail(tx)}
-                className="p-4 rounded-2xl bg-white dark:bg-[#0f172a] border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 active:scale-[0.99] transition-all cursor-pointer flex items-center justify-between shadow-xs"
+                style={{ animationDelay: `${Math.min(index * 30, 150)}ms` }}
+                className="animate-card-item p-3.5 rounded-2xl ios-glass-card hover:bg-white dark:hover:bg-slate-800/90 active:scale-[0.99] transition-all cursor-pointer flex items-center justify-between shadow-xs"
               >
                 <div className="flex items-center space-x-3">
                   <div
@@ -211,7 +258,7 @@ export function TransactionsScreen() {
                         : 'text-rose-600 dark:text-rose-400'
                     }`}
                   >
-                    {isCredit ? '+' : isBlocked ? '🔒 ' : '-'}
+                    {isCredit ? '+' : isBlocked ? '' : '-'}
                     {formatINR(tx.amount)}
                   </div>
                   <span
@@ -230,20 +277,20 @@ export function TransactionsScreen() {
       <BottomSheet
         isOpen={!!selectedTxDetail}
         onClose={() => setSelectedTxDetail(null)}
-        title="Transaction Audit Receipt"
-        subtitle={`Reference ID: ${selectedTxDetail?.id}`}
+        title="Transaction Details"
+        subtitle={`ID: ${selectedTxDetail?.id}`}
       >
         {selectedTxDetail && (
           <div className="space-y-4">
             <div className="p-5 rounded-3xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 text-center space-y-1">
               <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold">
-                Operation Amount
+                Amount
               </span>
               <div className="text-2xl font-black text-slate-900 dark:text-slate-100">
                 {formatINR(selectedTxDetail.amount)}
               </div>
-              <span className="inline-block px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200">
-                {selectedTxDetail.type.replace(/_/g, ' ')}
+              <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-bold border ${getTxTypeBadge(selectedTxDetail.type).color}`}>
+                {getTxTypeBadge(selectedTxDetail.type).label}
               </span>
             </div>
 
@@ -290,15 +337,47 @@ export function TransactionsScreen() {
               </div>
             </div>
 
-            <button
-              onClick={() => setSelectedTxDetail(null)}
-              className="w-full py-3 rounded-2xl bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-100 text-xs font-bold cursor-pointer transition-colors"
-            >
-              Close Receipt
-            </button>
+            <div className="flex items-center space-x-2.5 pt-1">
+              <button
+                type="button"
+                onClick={() => setTxToDelete(selectedTxDetail.id)}
+                className="flex-1 py-3 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-600 dark:text-rose-400 text-xs font-black flex items-center justify-center space-x-1.5 cursor-pointer transition-colors active:scale-95"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete Entry</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSelectedTxDetail(null)}
+                className="flex-1 py-3 rounded-2xl bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-100 text-xs font-bold cursor-pointer transition-colors"
+              >
+                Close Receipt
+              </button>
+            </div>
           </div>
         )}
       </BottomSheet>
+
+      {/* Delete Single Transaction Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={!!txToDelete}
+        onClose={() => setTxToDelete(null)}
+        onConfirm={() => {
+          if (txToDelete) {
+            deleteTransaction(txToDelete);
+            setTxToDelete(null);
+            if (selectedTxDetail?.id === txToDelete) {
+              setSelectedTxDetail(null);
+            }
+          }
+        }}
+        title="Delete Transaction?"
+        message="Are you sure you want to delete this transaction record from your ledger?"
+        confirmText="Delete"
+        variant="danger"
+        icon="trash"
+      />
     </div>
   );
 }

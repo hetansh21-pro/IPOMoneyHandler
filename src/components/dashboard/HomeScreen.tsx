@@ -6,6 +6,9 @@ import { calculateMoneySummary, getAccountAvailableBalance } from '@/lib/finance
 import { formatINR, formatDate } from '@/lib/utils/formatters';
 import { SegmentedBar, BankLogo } from '../common/SegmentedBar';
 import { BottomSheet } from '../common/BottomSheet';
+import { ConfirmDialog } from '../common/ConfirmDialog';
+import { useBackHandler } from '@/lib/hooks/useBackHandler';
+import { getIndianMarketStatus } from '@/lib/market/marketHours';
 import {
   Wallet,
   ArrowUpRight,
@@ -18,6 +21,8 @@ import {
   LineChart,
   Plus,
   Trash2,
+  Activity,
+  Clock,
 } from 'lucide-react';
 
 export function HomeScreen() {
@@ -27,6 +32,8 @@ export function HomeScreen() {
     allocations,
     investments,
     transactions,
+    activeMemberId,
+    familyMembers,
     deleteInvestment,
     setActiveTab,
     setActiveIpoSubTab,
@@ -37,14 +44,49 @@ export function HomeScreen() {
   } = useAppStore();
 
   const [investedModalOpen, setInvestedModalOpen] = useState(false);
+  const [isClearInvestmentsDialogOpen, setIsClearInvestmentsDialogOpen] = useState(false);
 
-  const summary = calculateMoneySummary(accounts, applications, allocations, investments);
+  useBackHandler(investedModalOpen, () => {
+    setInvestedModalOpen(false);
+    return true;
+  });
 
-  const activeApplications = applications.filter(
+  useBackHandler(isClearInvestmentsDialogOpen, () => {
+    setIsClearInvestmentsDialogOpen(false);
+    return true;
+  });
+
+  // Filter state for active family member
+  const filteredAccounts = activeMemberId === 'all'
+    ? accounts
+    : accounts.filter((a) => a.memberId === activeMemberId || (activeMemberId === 'self' && !a.memberId));
+
+  const filteredApplications = activeMemberId === 'all'
+    ? applications
+    : applications.filter((app) => app.memberId === activeMemberId || (activeMemberId === 'self' && !app.memberId));
+
+  const filteredInvestments = activeMemberId === 'all'
+    ? investments
+    : investments.filter((inv) => inv.memberId === activeMemberId || (activeMemberId === 'self' && !inv.memberId));
+
+  const filteredAllocations = activeMemberId === 'all'
+    ? allocations
+    : allocations.filter((al) => filteredAccounts.some((acc) => acc.id === al.accountId));
+
+  const filteredTransactions = activeMemberId === 'all'
+    ? transactions
+    : transactions.filter((t) => t.memberId === activeMemberId || (activeMemberId === 'self' && !t.memberId) || filteredAccounts.some((acc) => acc.id === t.accountId));
+
+  const summary = calculateMoneySummary(filteredAccounts, filteredApplications, filteredAllocations, filteredInvestments);
+
+  const activeApplications = filteredApplications.filter(
     (app) => !['NOT_ALLOTTED', 'CANCELLED', 'COMPLETED'].includes(app.status)
   );
 
-  const recentTransactions = transactions.slice(0, 5);
+  const recentTransactions = filteredTransactions.filter((t) => t.amount > 0).slice(0, 5);
+
+  const activeMember = familyMembers.find((m) => m.id === activeMemberId);
+  const memberTitle = activeMember ? `${activeMember.name}'s Portfolio` : 'All Family Overview';
 
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
@@ -72,7 +114,7 @@ export function HomeScreen() {
       label: 'Investments / Demat',
       amount: summary.investedMoney || 0,
       color: '#6366f1', // Indigo
-      onClick: () => setInvestedModalOpen(true),
+      onClick: () => setActiveTab('holdings'),
     },
     {
       label: 'IPO Blocked',
@@ -86,61 +128,89 @@ export function HomeScreen() {
   ];
 
   const handleClearAllInvestments = () => {
-    if (confirm('Clear all tracked stock holdings to make Invested value ₹0?')) {
-      for (const inv of investments) {
-        deleteInvestment(inv.id);
-      }
+    setIsClearInvestmentsDialogOpen(true);
+  };
+
+  const handleConfirmClearInvestments = () => {
+    for (const inv of investments) {
+      deleteInvestment(inv.id);
     }
   };
 
   return (
-    <div className="space-y-4 pb-28 animate-fade-in">
-      {/* Header Greeting */}
+    <div className="space-y-4 pb-6 animate-fade-in">
+      {/* Header Greeting & Market Timing Status */}
       <div className="flex items-center justify-between">
         <div>
-          <span className="text-xs font-semibold text-[#64748b] dark:text-slate-400">{greeting} 👋</span>
+          <span className="text-xs font-semibold text-[#64748b] dark:text-slate-400">{greeting}</span>
           <h1 className="text-xl font-extrabold text-[#0f172a] dark:text-slate-100 tracking-tight">Where is my money?</h1>
         </div>
-        <div className="flex items-center space-x-1.5 px-3 py-1 rounded-full bg-[#ecfdf5] dark:bg-emerald-950/50 border border-[#a7f3d0] dark:border-emerald-800 text-[11px] text-[#047857] dark:text-emerald-400 font-bold">
-          <span className="w-1.5 h-1.5 rounded-full bg-[#10b981]" />
-          <span>Manual</span>
-        </div>
+        
+        {/* Real-time Indian Market Status Chip */}
+        {(() => {
+          const market = getIndianMarketStatus();
+          const isLive = market.isTradingActive;
+          return (
+            <button
+              onClick={() => setActiveTab('ipos')}
+              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-full border text-[11px] font-bold transition-all active:scale-95 cursor-pointer shadow-2xs ${
+                isLive
+                  ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400'
+                  : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
+              }`}
+              title={market.subLabel}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+              <span>{isLive ? 'Market Live' : 'Market Closed'}</span>
+            </button>
+          );
+        })()}
       </div>
 
-      {/* Main Available Balance Hero Card */}
-      <div className="relative rounded-3xl bg-white dark:bg-[#0f172a] p-5 border border-[#e2e8f0] dark:border-slate-800 shadow-[0_2px_8px_rgba(0,0,0,0.04)] overflow-hidden transition-colors">
-        <div className="space-y-3.5">
-          <div className="flex items-start justify-between">
-            <div>
-              <span className="text-[10px] font-extrabold text-[#059669] dark:text-emerald-400 uppercase tracking-wider flex items-center space-x-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#10b981]" />
-                <span>Available Balance</span>
-              </span>
-              <div className="text-3xl font-black text-[#0f172a] dark:text-slate-100 tracking-tight mt-0.5">
-                {formatINR(summary.availableMoney)}
-              </div>
-            </div>
-            <div className="text-right">
-              <span className="text-[10px] font-bold text-[#94a3b8] dark:text-slate-400 uppercase tracking-wider">
-                Total Tracked
-              </span>
-              <div className="text-xs font-black text-[#334155] dark:text-slate-300 mt-0.5">
-                {formatINR(summary.totalTrackedMoney)}
-              </div>
-            </div>
+      {/* Main Available Balance Hero Card with Silver Shine Metallic Titanium Finish */}
+      <div className="relative rounded-[32px] bg-gradient-to-br from-[#ffffff] via-[#f1f5f9] to-[#d8e2ee] dark:from-[#1e293b] dark:via-[#0f172a] dark:to-[#1a2234] p-5 border border-white/90 dark:border-slate-600/50 shadow-[0_16px_45px_rgba(148,163,184,0.22)] dark:shadow-[0_20px_50px_rgba(0,0,0,0.6)] overflow-hidden transition-all group">
+        {/* Specular Silver Metallic Shine Streaks */}
+        <div className="absolute -top-16 -right-16 w-52 h-52 bg-gradient-to-br from-white/80 via-slate-200/30 to-transparent dark:from-slate-700/20 dark:via-slate-800/10 rounded-full blur-2xl pointer-events-none" />
+        <div className="absolute -bottom-12 -left-12 w-48 h-48 bg-gradient-to-tr from-slate-200/50 via-white/40 to-transparent dark:from-slate-800/30 dark:via-slate-700/10 rounded-full blur-2xl pointer-events-none" />
+        <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-white/90 dark:via-slate-400/30 to-transparent pointer-events-none" />
+
+        <div className="space-y-4 relative z-10">
+          {/* Top Label */}
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-black uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center space-x-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-sm" />
+              <span>Available Balance</span>
+            </span>
           </div>
 
-          {/* Sub Balances in clean rounded tiles */}
-          <div className="grid grid-cols-3 gap-2 pt-3 border-t border-[#f1f5f9] dark:border-slate-800">
+          {/* Hero Big Balance */}
+          <div>
+            <div className="text-3xl md:text-4xl font-black text-slate-900 dark:text-slate-50 tracking-tight">
+              {formatINR(summary.availableMoney)}
+            </div>
+            <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mt-1">
+              Ready for withdrawal & IPO applications
+            </p>
+          </div>
+
+          {/* 3-Column Silver Frosted Glass Pods */}
+          <div className="grid grid-cols-3 gap-2 pt-1">
             <button
               onClick={() => {
                 setActiveAccountFilter('ALL');
                 setActiveTab('accounts');
               }}
-              className="p-2.5 rounded-2xl bg-[#f0fdf4] dark:bg-emerald-950/30 border border-[#dcfce7] dark:border-emerald-900/50 text-left hover:bg-[#dcfce7]/60 dark:hover:bg-emerald-900/40 transition-colors cursor-pointer"
+              className="p-2.5 rounded-2xl bg-white/80 dark:bg-slate-900/70 hover:bg-white dark:hover:bg-slate-800/80 border border-slate-200/90 dark:border-slate-700/80 backdrop-blur-xl text-left transition-all cursor-pointer active:scale-95 shadow-xs group/pod"
             >
-              <span className="text-[10px] text-[#15803d] dark:text-emerald-400 font-bold uppercase">Total Tracked</span>
-              <div className="text-xs font-black text-[#0f172a] dark:text-slate-100 mt-0.5 truncate">
+              <div className="flex items-center space-x-1.5 mb-1">
+                <div className="w-4 h-4 rounded-md bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0">
+                  <Wallet className="w-2.5 h-2.5" />
+                </div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Tracked
+                </span>
+              </div>
+              <div className="text-sm font-black text-slate-900 dark:text-slate-100 truncate tracking-tight">
                 {formatINR(summary.totalTrackedMoney)}
               </div>
             </button>
@@ -150,24 +220,34 @@ export function HomeScreen() {
                 setActiveIpoSubTab('MY_APPLICATIONS');
                 setActiveTab('ipos');
               }}
-              className="p-2.5 rounded-2xl bg-[#fffbeb] dark:bg-amber-950/30 border border-[#fef3c7] dark:border-amber-900/50 text-left hover:bg-[#fef3c7]/60 dark:hover:bg-amber-900/40 transition-colors cursor-pointer"
+              className="p-2.5 rounded-2xl bg-white/80 dark:bg-slate-900/70 hover:bg-white dark:hover:bg-slate-800/80 border border-slate-200/90 dark:border-slate-700/80 backdrop-blur-xl text-left transition-all cursor-pointer active:scale-95 shadow-xs group/pod"
             >
-              <span className="text-[10px] text-[#b45309] dark:text-amber-400 font-bold uppercase">IPO Blocked</span>
-              <div className="text-xs font-black text-[#0f172a] dark:text-slate-100 mt-0.5 truncate">
+              <div className="flex items-center space-x-1.5 mb-1">
+                <div className="w-4 h-4 rounded-md bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-600 dark:text-amber-400 shrink-0">
+                  <Lock className="w-2.5 h-2.5" />
+                </div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Blocked
+                </span>
+              </div>
+              <div className="text-sm font-black text-slate-900 dark:text-slate-100 truncate tracking-tight">
                 {formatINR(summary.blockedMoney)}
               </div>
             </button>
 
             <button
-              onClick={() => setInvestedModalOpen(true)}
-              className="p-2.5 rounded-2xl bg-[#eef2ff] dark:bg-indigo-950/30 border border-[#e0e7ff] dark:border-indigo-900/50 text-left hover:bg-[#e0e7ff]/60 dark:hover:bg-indigo-900/40 transition-colors group cursor-pointer"
-              title="Tap to manage investments"
+              onClick={() => setActiveTab('holdings')}
+              className="p-2.5 rounded-2xl bg-white/80 dark:bg-slate-900/70 hover:bg-white dark:hover:bg-slate-800/80 border border-slate-200/90 dark:border-slate-700/80 backdrop-blur-xl text-left transition-all cursor-pointer active:scale-95 shadow-xs group/pod"
             >
-              <span className="text-[10px] text-[#4338ca] dark:text-indigo-400 font-bold uppercase flex items-center justify-between">
-                <span>Invested</span>
-                <span className="text-[9px] text-[#6366f1] dark:text-indigo-300 group-hover:underline">Edit →</span>
-              </span>
-              <div className="text-xs font-black text-[#0f172a] dark:text-slate-100 mt-0.5 truncate">
+              <div className="flex items-center space-x-1.5 mb-1">
+                <div className="w-4 h-4 rounded-md bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0">
+                  <LineChart className="w-2.5 h-2.5" />
+                </div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Invested
+                </span>
+              </div>
+              <div className="text-sm font-black text-slate-900 dark:text-slate-100 truncate tracking-tight">
                 {formatINR(summary.investedMoney)}
               </div>
             </button>
@@ -175,26 +255,26 @@ export function HomeScreen() {
         </div>
       </div>
 
-      {/* Quick Actions Row */}
+      {/* Quick Actions Row with iOS Glass styling */}
       <div className="grid grid-cols-4 gap-2">
         <button
           onClick={() => setQuickActionOpen(true, 'add_money')}
-          className="flex flex-col items-center justify-center p-3 rounded-2xl bg-white dark:bg-[#0f172a] border border-[#e2e8f0] dark:border-slate-800 hover:border-[#10b981] active:scale-95 transition-all text-center shadow-[0_2px_4px_rgba(0,0,0,0.02)] group cursor-pointer"
+          className="flex flex-col items-center justify-center p-3 rounded-2xl ios-glass-card hover:bg-white dark:hover:bg-slate-800/90 active:scale-95 transition-all text-center group cursor-pointer"
         >
-          <div className="w-10 h-10 rounded-2xl bg-[#ecfdf5] dark:bg-emerald-950/50 text-[#059669] dark:text-emerald-400 flex items-center justify-center mb-1 group-hover:scale-105 transition-transform">
-            <ArrowDownLeft className="w-5 h-5" />
+          <div className="w-10 h-10 rounded-2xl bg-emerald-500/15 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mb-1 group-hover:scale-105 transition-transform">
+            <ArrowDownLeft className="w-5 h-5 stroke-[2.5]" />
           </div>
-          <span className="text-[11px] font-bold text-[#1e293b] dark:text-slate-200">Add</span>
+          <span className="text-[11px] font-bold text-slate-800 dark:text-slate-200">Add</span>
         </button>
 
         <button
           onClick={() => setQuickActionOpen(true, 'transfer')}
-          className="flex flex-col items-center justify-center p-3 rounded-2xl bg-white dark:bg-[#0f172a] border border-[#e2e8f0] dark:border-slate-800 hover:border-[#0ea5e9] active:scale-95 transition-all text-center shadow-[0_2px_4px_rgba(0,0,0,0.02)] group cursor-pointer"
+          className="flex flex-col items-center justify-center p-3 rounded-2xl ios-glass-card hover:bg-white dark:hover:bg-slate-800/90 active:scale-95 transition-all text-center group cursor-pointer"
         >
-          <div className="w-10 h-10 rounded-2xl bg-[#f0f9ff] dark:bg-sky-950/50 text-[#0284c7] dark:text-sky-400 flex items-center justify-center mb-1 group-hover:scale-105 transition-transform">
-            <ArrowRightLeft className="w-5 h-5" />
+          <div className="w-10 h-10 rounded-2xl bg-sky-500/15 dark:bg-sky-500/20 text-sky-600 dark:text-sky-400 flex items-center justify-center mb-1 group-hover:scale-105 transition-transform">
+            <ArrowRightLeft className="w-5 h-5 stroke-[2.5]" />
           </div>
-          <span className="text-[11px] font-bold text-[#1e293b] dark:text-slate-200">Transfer</span>
+          <span className="text-[11px] font-bold text-slate-800 dark:text-slate-200">Transfer</span>
         </button>
 
         <button
@@ -202,22 +282,22 @@ export function HomeScreen() {
             setActiveIpoSubTab('LIVE');
             setActiveTab('ipos');
           }}
-          className="flex flex-col items-center justify-center p-3 rounded-2xl bg-white dark:bg-[#0f172a] border border-[#e2e8f0] dark:border-slate-800 hover:border-[#f59e0b] active:scale-95 transition-all text-center shadow-[0_2px_4px_rgba(0,0,0,0.02)] group cursor-pointer"
+          className="flex flex-col items-center justify-center p-3 rounded-2xl ios-glass-card hover:bg-white dark:hover:bg-slate-800/90 active:scale-95 transition-all text-center group cursor-pointer"
         >
-          <div className="w-10 h-10 rounded-2xl bg-[#fffbeb] dark:bg-amber-950/50 text-[#d97706] dark:text-amber-400 flex items-center justify-center mb-1 group-hover:scale-105 transition-transform">
-            <TrendingUp className="w-5 h-5" />
+          <div className="w-10 h-10 rounded-2xl bg-amber-500/15 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center mb-1 group-hover:scale-105 transition-transform">
+            <TrendingUp className="w-5 h-5 stroke-[2.5]" />
           </div>
-          <span className="text-[11px] font-bold text-[#1e293b] dark:text-slate-200">Apply IPO</span>
+          <span className="text-[11px] font-bold text-slate-800 dark:text-slate-200">Apply IPO</span>
         </button>
 
         <button
           onClick={() => setQuickActionOpen(true, 'add_account')}
-          className="flex flex-col items-center justify-center p-3 rounded-2xl bg-white dark:bg-[#0f172a] border border-[#e2e8f0] dark:border-slate-800 hover:border-[#8b5cf6] active:scale-95 transition-all text-center shadow-[0_2px_4px_rgba(0,0,0,0.02)] group cursor-pointer"
+          className="flex flex-col items-center justify-center p-3 rounded-2xl ios-glass-card hover:bg-white dark:hover:bg-slate-800/90 active:scale-95 transition-all text-center group cursor-pointer"
         >
-          <div className="w-10 h-10 rounded-2xl bg-[#fdf4ff] dark:bg-purple-950/50 text-[#9333ea] dark:text-purple-400 flex items-center justify-center mb-1 group-hover:scale-105 transition-transform">
-            <Building2 className="w-5 h-5" />
+          <div className="w-10 h-10 rounded-2xl bg-purple-500/15 dark:bg-purple-500/20 text-purple-600 dark:text-purple-400 flex items-center justify-center mb-1 group-hover:scale-105 transition-transform">
+            <Building2 className="w-5 h-5 stroke-[2.5]" />
           </div>
-          <span className="text-[11px] font-bold text-[#1e293b] dark:text-slate-200">Account</span>
+          <span className="text-[11px] font-bold text-slate-800 dark:text-slate-200">Account</span>
         </button>
       </div>
 
@@ -443,7 +523,7 @@ export function HomeScreen() {
                         : 'text-[#e11d48]'
                     }`}
                   >
-                    {isCredit ? '+' : isBlocked ? '🔒 ' : '-'}
+                    {isCredit ? '+' : isBlocked ? '' : '-'}
                     {formatINR(tx.amount)}
                   </span>
                 </div>
@@ -545,6 +625,19 @@ export function HomeScreen() {
           )}
         </div>
       </BottomSheet>
+
+      {/* Clear Investments Confirm Dialog */}
+      <ConfirmDialog
+        isOpen={isClearInvestmentsDialogOpen}
+        onClose={() => setIsClearInvestmentsDialogOpen(false)}
+        onConfirm={handleConfirmClearInvestments}
+        title="Clear All Stock Holdings?"
+        message="Are you sure you want to clear all tracked stock holdings? This will make your Invested value ₹0."
+        confirmText="Clear Holdings"
+        cancelText="Cancel"
+        variant="danger"
+        icon="trash"
+      />
     </div>
   );
 }

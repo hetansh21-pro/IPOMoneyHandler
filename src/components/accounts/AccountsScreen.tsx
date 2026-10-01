@@ -1,11 +1,17 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useCallback, useMemo } from 'react';
 import { useAppStore } from '@/lib/store/useAppStore';
-import { getAccountAvailableBalance, getAccountIPOBlockedAmount, getAccountAllocatedAmount } from '@/lib/finance/ledger';
+import {
+  getAccountAvailableBalance,
+  getAccountIPOBlockedAmount,
+  getAccountAllocatedAmount,
+  getDematInvestedValue,
+} from '@/lib/finance/ledger';
 import { formatINR, formatDate } from '@/lib/utils/formatters';
 import { BottomSheet } from '../common/BottomSheet';
 import { BankLogo } from '../common/SegmentedBar';
+import { SlidingSegmentedTabs } from '../common/SlidingSegmentedTabs';
 import {
   Plus,
   Building2,
@@ -18,8 +24,26 @@ import {
   ArrowUpRight,
   ArrowRightLeft,
   Layers,
+  Camera,
 } from 'lucide-react';
-import { Account, AccountType, AllocationCategory } from '@/lib/types/finance';
+import { Account, AccountType, AllocationCategory, IPOApplication } from '@/lib/types/finance';
+import { DematScreenshotScannerModal } from '../investments/DematScreenshotScannerModal';
+import { ConfirmDialog } from '../common/ConfirmDialog';
+import { useBackHandler } from '@/lib/hooks/useBackHandler';
+import { useSwipeGesture } from '@/lib/hooks/useSwipeGesture';
+
+const ACCOUNT_FILTERS: Array<'ALL' | 'BANK' | 'DEMAT' | 'CASH'> = ['ALL', 'BANK', 'DEMAT', 'CASH'];
+
+function isBlockedOrAllottedApp(a: IPOApplication) {
+  const isBlocked =
+    a.blockedAmount > 0 ||
+    ['APPLIED', 'MANDATE_PENDING', 'MANDATE_ACCEPTED', 'FUNDS_BLOCKED', 'ALLOTMENT_PENDING'].includes(a.status);
+  const isAllotted =
+    a.lotsAllotted > 0 ||
+    a.allottedAmount > 0 ||
+    ['FULLY_ALLOTTED', 'PARTIALLY_ALLOTTED'].includes(a.status);
+  return isBlocked || isAllotted;
+}
 
 export function AccountsScreen() {
   const {
@@ -28,6 +52,8 @@ export function AccountsScreen() {
     allocations,
     investments,
     transactions,
+    activeMemberId,
+    familyMembers,
     selectedAccountDetailId,
     setSelectedAccountDetailId,
     activeAccountFilter,
@@ -35,6 +61,7 @@ export function AccountsScreen() {
     setQuickActionOpen,
     deleteAccount,
     updateAccount,
+    reorderAccounts,
     setAccountAllocations,
   } = useAppStore();
 
@@ -47,16 +74,190 @@ export function AccountsScreen() {
   // Allocation manager modal
   const [isAllocating, setIsAllocating] = useState(false);
   const [allocationItems, setAllocationItems] = useState<Array<{ category: AllocationCategory; label: string; amount: number }>>([]);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
-  const selectedAccount = accounts.find((a) => a.id === selectedAccountDetailId);
-
-  const filteredAccounts = accounts.filter((acc) => {
-    if (activeAccountFilter === 'ALL') return true;
-    if (activeAccountFilter === 'BANK') return acc.type === 'bank';
-    if (activeAccountFilter === 'DEMAT') return acc.type === 'demat' || acc.type === 'investment';
-    if (activeAccountFilter === 'CASH') return acc.type === 'cash' || acc.type === 'wallet';
+  // Back Navigation Handlers
+  useBackHandler(isDeleteDialogOpen, () => {
+    setIsDeleteDialogOpen(false);
     return true;
   });
+
+  useBackHandler(isScannerOpen, () => {
+    setIsScannerOpen(false);
+    return true;
+  });
+
+  useBackHandler(isAllocating, () => {
+    setIsAllocating(false);
+    return true;
+  });
+
+  useBackHandler(isEditingAccount, () => {
+    setIsEditingAccount(false);
+    return true;
+  });
+
+  // Helper to reorder filtered accounts while maintaining overall structure
+  const reorderWithFilter = (
+    allAccounts: Account[],
+    filtered: Account[],
+    sourceId: string,
+    targetId: string
+  ): Account[] => {
+    if (sourceId === targetId) return allAccounts;
+
+    const fromIndex = filtered.findIndex((a) => a.id === sourceId);
+    const toIndex = filtered.findIndex((a) => a.id === targetId);
+    if (fromIndex === -1 || toIndex === -1) return allAccounts;
+
+    const newFiltered = [...filtered];
+    const [movedItem] = newFiltered.splice(fromIndex, 1);
+    newFiltered.splice(toIndex, 0, movedItem);
+
+    let filteredPointer = 0;
+    return allAccounts.map((acc) => {
+      if (newFiltered.some((f) => f.id === acc.id)) {
+        const item = newFiltered[filteredPointer];
+        filteredPointer++;
+        return item;
+      }
+      return acc;
+    });
+  };
+
+  // Drag & Touch-hold Reorder State
+  const [draggedAccountId, setDraggedAccountId] = useState<string | null>(null);
+  const [dragOverAccountId, setDragOverAccountId] = useState<string | null>(null);
+  const holdTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const pointerStartPosRef = useRef<{ x: number; y: number } | null>(null);
+  const hasDraggedRef = useRef<boolean>(false);
+  const activeDragIdRef = useRef<string | null>(null);
+
+  const clearHoldTimer = () => {
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+  };
+
+  const handlePointerDown = (e: React.PointerEvent, accId: string) => {
+    if (e.button !== 0) return;
+    pointerStartPosRef.current = { x: e.clientX, y: e.clientY };
+    clearHoldTimer();
+
+    holdTimerRef.current = setTimeout(() => {
+      hasDraggedRef.current = true;
+      activeDragIdRef.current = accId;
+      setDraggedAccountId(accId);
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        try {
+          navigator.vibrate(35);
+        } catch {}
+      }
+    }, 200);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (pointerStartPosRef.current) {
+      const dx = Math.abs(e.clientX - pointerStartPosRef.current.x);
+      const dy = Math.abs(e.clientY - pointerStartPosRef.current.y);
+      if (!activeDragIdRef.current && (dx > 8 || dy > 8)) {
+        clearHoldTimer();
+      }
+    }
+
+    if (activeDragIdRef.current) {
+      const elem = document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-account-id]');
+      if (elem) {
+        const targetId = elem.getAttribute('data-account-id');
+        if (targetId && targetId !== activeDragIdRef.current) {
+          setDragOverAccountId(targetId);
+        }
+      }
+    }
+  };
+
+  const handlePointerUp = () => {
+    clearHoldTimer();
+    const sourceId = activeDragIdRef.current || draggedAccountId;
+    const targetId = dragOverAccountId;
+
+    if (sourceId && targetId && sourceId !== targetId) {
+      const updated = reorderWithFilter(accounts, filteredAccounts, sourceId, targetId);
+      reorderAccounts(updated);
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        try {
+          navigator.vibrate([20, 30, 20]);
+        } catch {}
+      }
+    }
+
+    setDraggedAccountId(null);
+    setDragOverAccountId(null);
+    activeDragIdRef.current = null;
+    pointerStartPosRef.current = null;
+
+    setTimeout(() => {
+      hasDraggedRef.current = false;
+    }, 120);
+  };
+
+  const handleDragStart = (e: React.DragEvent, accId: string) => {
+    e.dataTransfer.setData('text/plain', accId);
+    e.dataTransfer.effectAllowed = 'move';
+    activeDragIdRef.current = accId;
+    setDraggedAccountId(accId);
+    hasDraggedRef.current = true;
+  };
+
+  const handleDragOver = (e: React.DragEvent, accId: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dragOverAccountId !== accId) {
+      setDragOverAccountId(accId);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent, targetId: string) => {
+    e.preventDefault();
+    const sourceId = e.dataTransfer.getData('text/plain') || draggedAccountId;
+    if (sourceId && targetId && sourceId !== targetId) {
+      const updated = reorderWithFilter(accounts, filteredAccounts, sourceId, targetId);
+      reorderAccounts(updated);
+    }
+    setDraggedAccountId(null);
+    setDragOverAccountId(null);
+    activeDragIdRef.current = null;
+    setTimeout(() => {
+      hasDraggedRef.current = false;
+    }, 120);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedAccountId(null);
+    setDragOverAccountId(null);
+    activeDragIdRef.current = null;
+    setTimeout(() => {
+      hasDraggedRef.current = false;
+    }, 120);
+  };
+
+  const selectedAccount = useMemo(() => accounts.find((a) => a.id === selectedAccountDetailId), [accounts, selectedAccountDetailId]);
+
+  const filteredAccounts = useMemo(() => {
+    return accounts.filter((acc) => {
+      if (activeMemberId !== 'all') {
+        if (acc.memberId && acc.memberId !== activeMemberId) return false;
+        if (!acc.memberId && activeMemberId !== 'self') return false;
+      }
+      if (activeAccountFilter === 'ALL') return true;
+      if (activeAccountFilter === 'BANK') return acc.type === 'bank';
+      if (activeAccountFilter === 'DEMAT') return acc.type === 'demat' || acc.type === 'investment';
+      if (activeAccountFilter === 'CASH') return acc.type === 'cash' || acc.type === 'wallet';
+      return true;
+    });
+  }, [accounts, activeAccountFilter, activeMemberId]);
 
   const handleOpenAccountDetail = (acc: Account) => {
     setSelectedAccountDetailId(acc.id);
@@ -86,10 +287,13 @@ export function AccountsScreen() {
 
   const handleDeleteAccount = () => {
     if (!selectedAccount) return;
-    if (confirm(`Are you sure you want to delete ${selectedAccount.name}? All linked transactions will also be cleared.`)) {
-      deleteAccount(selectedAccount.id);
-      setSelectedAccountDetailId(null);
-    }
+    setIsDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDeleteAccount = () => {
+    if (!selectedAccount) return;
+    deleteAccount(selectedAccount.id);
+    setSelectedAccountDetailId(null);
   };
 
   const handleOpenAllocationManager = () => {
@@ -114,8 +318,27 @@ export function AccountsScreen() {
     setIsAllocating(false);
   };
 
+  const currentFilterIndex = ACCOUNT_FILTERS.indexOf(activeAccountFilter);
+
+  const handleSwipeLeft = useCallback(() => {
+    if (currentFilterIndex < ACCOUNT_FILTERS.length - 1) {
+      setActiveAccountFilter(ACCOUNT_FILTERS[currentFilterIndex + 1]);
+    }
+  }, [currentFilterIndex, setActiveAccountFilter]);
+
+  const handleSwipeRight = useCallback(() => {
+    if (currentFilterIndex > 0) {
+      setActiveAccountFilter(ACCOUNT_FILTERS[currentFilterIndex - 1]);
+    }
+  }, [currentFilterIndex, setActiveAccountFilter]);
+
+  const swipeHandlers = useSwipeGesture({
+    onSwipeLeft: handleSwipeLeft,
+    onSwipeRight: handleSwipeRight,
+  });
+
   return (
-    <div className="space-y-4 pb-28 animate-fade-in">
+    <div {...swipeHandlers} className="space-y-4 pb-6 animate-fade-in touch-pan-y flex-1 min-h-full flex flex-col justify-start">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -131,31 +354,26 @@ export function AccountsScreen() {
         </button>
       </div>
 
-      {/* Account Type Filters in Emerald */}
-      <div className="flex items-center space-x-1.5 overflow-x-auto pb-0.5 scrollbar-none">
-        {[
-          { id: 'ALL' as const, label: 'All Accounts' },
-          { id: 'BANK' as const, label: 'Bank Accounts' },
-          { id: 'DEMAT' as const, label: 'Demat / Broker' },
-          { id: 'CASH' as const, label: 'Cash & Wallets' },
-        ].map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveAccountFilter(tab.id)}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold whitespace-nowrap transition-all ${
-              activeAccountFilter === tab.id
-                ? 'bg-emerald-600 text-white shadow-xs'
-                : 'bg-white dark:bg-[#0f172a] border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      {/* Account Type Filters with Smooth Sliding Pill */}
+      <SlidingSegmentedTabs
+        tabs={[
+          { id: 'ALL' as const, label: 'All' },
+          { id: 'BANK' as const, label: 'Bank' },
+          { id: 'DEMAT' as const, label: 'Demat' },
+          { id: 'CASH' as const, label: 'Cash / Wallet' },
+        ]}
+        activeId={activeAccountFilter}
+        onChange={(filter) => setActiveAccountFilter(filter)}
+        size="sm"
+        variant="equal"
+      />
 
       {/* Accounts List */}
       {filteredAccounts.length === 0 ? (
-        <div className="p-8 rounded-2xl bg-white dark:bg-[#0f172a] border border-slate-200 dark:border-slate-800 text-center space-y-3 shadow-xs">
+        <div
+          key={`empty-${activeAccountFilter}`}
+          className="p-8 rounded-2xl bg-white dark:bg-[#0f172a] border border-slate-200 dark:border-slate-800 text-center space-y-3 shadow-xs animate-card-slide"
+        >
           <Building2 className="w-10 h-10 text-slate-300 dark:text-slate-600 mx-auto" />
           <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">No accounts in this category</h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 max-w-xs mx-auto">
@@ -170,17 +388,40 @@ export function AccountsScreen() {
           </button>
         </div>
       ) : (
-        <div className="space-y-3">
-          {filteredAccounts.map((acc) => {
+        <div key={activeAccountFilter} className="space-y-3 animate-card-slide">
+          {filteredAccounts.map((acc, index) => {
             const available = getAccountAvailableBalance(acc, applications, allocations);
             const blocked = getAccountIPOBlockedAmount(acc.id, applications);
             const isDemat = acc.type === 'demat' || acc.type === 'investment';
+            const isDragging = draggedAccountId === acc.id;
+            const isOver = dragOverAccountId === acc.id && draggedAccountId !== acc.id;
 
             return (
               <div
                 key={acc.id}
-                onClick={() => handleOpenAccountDetail(acc)}
-                className="p-4 rounded-2xl bg-white dark:bg-[#0f172a] border border-slate-200/80 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-emerald-600 active:scale-[0.99] transition-all cursor-pointer space-y-3 shadow-xs"
+                data-account-id={acc.id}
+                draggable
+                onDragStart={(e) => handleDragStart(e, acc.id)}
+                onDragOver={(e) => handleDragOver(e, acc.id)}
+                onDrop={(e) => handleDrop(e, acc.id)}
+                onDragEnd={handleDragEnd}
+                onPointerDown={(e) => handlePointerDown(e, acc.id)}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+                onPointerCancel={handlePointerUp}
+                onClick={() => {
+                  if (!hasDraggedRef.current) {
+                    handleOpenAccountDetail(acc);
+                  }
+                }}
+                style={{ animationDelay: `${Math.min(index * 35, 180)}ms` }}
+                className={`animate-card-item p-4 rounded-3xl border transition-all select-none space-y-3 ${
+                  isDragging
+                    ? 'scale-[1.02] shadow-2xl ring-2 ring-emerald-500 bg-emerald-50/80 dark:bg-emerald-950/50 border-emerald-400 dark:border-emerald-500 z-30 opacity-90 cursor-grabbing'
+                    : isOver
+                    ? 'ring-2 ring-dashed ring-emerald-400 dark:ring-emerald-500 bg-emerald-50/30 dark:bg-emerald-950/20 border-emerald-300 dark:border-emerald-700'
+                    : 'ios-glass-card hover:bg-white dark:hover:bg-slate-800/90 active:scale-[0.99] cursor-pointer'
+                }`}
               >
                 {/* Header Row: Logo + Name + Balance */}
                 <div className="flex items-start justify-between gap-3">
@@ -213,10 +454,10 @@ export function AccountsScreen() {
                 <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
                   {isDemat ? (
                     (() => {
-                      const linkedIpos = applications.filter((a) => a.dematAccountId === acc.id).length;
-                      const investedVal = acc.investedAmount !== undefined
-                        ? acc.investedAmount
-                        : investments.filter((inv) => !inv.accountId || inv.accountId === acc.id).reduce((sum, inv) => sum + (inv.quantity * inv.currentPrice), 0);
+                      const linkedIpos = applications.filter(
+                        (a) => a.dematAccountId === acc.id && isBlockedOrAllottedApp(a)
+                      ).length;
+                      const investedVal = getDematInvestedValue(acc, investments, accounts);
 
                       return (
                         <div className="grid grid-cols-3 gap-2">
@@ -282,7 +523,7 @@ export function AccountsScreen() {
                     </span>
                     <div className="text-2xl font-black text-slate-900 dark:text-slate-100 leading-tight mt-0.5 truncate">
                       {selectedAccount.type === 'demat' || selectedAccount.type === 'investment'
-                        ? formatINR((selectedAccount.investedAmount ?? 0) + selectedAccount.balance)
+                        ? formatINR(getDematInvestedValue(selectedAccount, investments, accounts) + selectedAccount.balance)
                         : formatINR(selectedAccount.balance)}
                     </div>
                   </div>
@@ -395,10 +636,10 @@ export function AccountsScreen() {
               <div className="pt-2 border-t border-slate-200 dark:border-slate-700">
                 {selectedAccount.type === 'demat' || selectedAccount.type === 'investment' ? (
                   (() => {
-                    const modalLinkedIpos = applications.filter((a) => a.dematAccountId === selectedAccount.id).length;
-                    const modalInvestedVal = selectedAccount.investedAmount !== undefined
-                      ? selectedAccount.investedAmount
-                      : investments.filter((inv) => !inv.accountId || inv.accountId === selectedAccount.id).reduce((sum, inv) => sum + (inv.quantity * inv.currentPrice), 0);
+                    const modalLinkedIpos = applications.filter(
+                      (a) => a.dematAccountId === selectedAccount.id && isBlockedOrAllottedApp(a)
+                    ).length;
+                    const modalInvestedVal = getDematInvestedValue(selectedAccount, investments, accounts);
 
                     return (
                       <div className="grid grid-cols-3 gap-2">
@@ -481,6 +722,118 @@ export function AccountsScreen() {
               </button>
             </div>
 
+            {/* Demat Stock Holdings Section */}
+            {(selectedAccount.type === 'demat' || selectedAccount.type === 'investment') && (() => {
+              const dematInvestments = investments.filter((i) => i.accountId === selectedAccount.id);
+              const totalHoldingVal = dematInvestments.reduce((sum, inv) => sum + (inv.quantity * (inv.currentPrice || inv.avgPrice)), 0);
+              const totalInvestedVal = dematInvestments.reduce((sum, inv) => sum + (inv.quantity * inv.avgPrice), 0);
+              const totalPnl = totalHoldingVal - totalInvestedVal;
+              const totalPnlPct = totalInvestedVal > 0 ? (totalPnl / totalInvestedVal) * 100 : 0;
+
+              return (
+                <div className="space-y-3 p-4 rounded-3xl bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/50">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <LineChart className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                      <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+                        Demat Holdings ({dematInvestments.length})
+                      </h3>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={() => {
+                          setIsScannerOpen(true);
+                        }}
+                        className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 font-bold flex items-center space-x-1 cursor-pointer bg-indigo-100/60 dark:bg-indigo-900/40 px-2.5 py-1 rounded-xl"
+                      >
+                        <Camera className="w-3.5 h-3.5" />
+                        <span>Scan</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          const accId = selectedAccount.id;
+                          setSelectedAccountDetailId(null);
+                          setQuickActionOpen(true, 'add_investment', accId);
+                        }}
+                        className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 font-bold flex items-center space-x-1 cursor-pointer bg-indigo-100/60 dark:bg-indigo-900/40 px-2.5 py-1 rounded-xl"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Add Stock</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {dematInvestments.length === 0 ? (
+                    <div className="py-4 text-center space-y-1">
+                      <p className="text-xs text-slate-400 dark:text-slate-500">
+                        No stocks currently linked to this Demat account.
+                      </p>
+                      <p className="text-[10px] text-slate-400 dark:text-slate-500">
+                        Allotted IPO shares or manual holdings assigned to this Demat will appear here.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="p-2.5 rounded-2xl bg-white/70 dark:bg-slate-900/70 border border-indigo-100 dark:border-indigo-900/40 flex justify-between items-center text-xs">
+                        <span className="text-slate-500 dark:text-slate-400 font-bold">Total Holdings Value:</span>
+                        <div className="text-right">
+                          <span className="font-black text-slate-900 dark:text-slate-100">{formatINR(totalHoldingVal)}</span>
+                          <span className={`ml-1.5 text-[10px] font-bold ${totalPnl >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                            ({totalPnl >= 0 ? '+' : ''}{formatINR(totalPnl)})
+                          </span>
+                        </div>
+                      </div>
+
+                      {dematInvestments.map((inv) => {
+                        const curVal = inv.quantity * (inv.currentPrice || inv.avgPrice);
+                        const invVal = inv.quantity * inv.avgPrice;
+                        const pnl = curVal - invVal;
+                        const pnlPct = invVal > 0 ? (pnl / invVal) * 100 : 0;
+                        const hasDayChange = inv.dayChange !== undefined && inv.dayChange !== null;
+                        const isDayPositive = (inv.dayChange || 0) >= 0;
+
+                        return (
+                          <div
+                            key={inv.id}
+                            className="p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-between shadow-xs"
+                          >
+                            <div>
+                              <div className="flex items-center space-x-2">
+                                <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100">{inv.symbol}</h4>
+                                {inv.isIpoAllotted && (
+                                  <span className="px-1.5 py-0.5 rounded-md text-[9px] font-extrabold bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300">
+                                    IPO Allotted
+                                  </span>
+                                )}
+                                <span className="text-[10px] text-slate-500 dark:text-slate-400 truncate max-w-[110px]">
+                                  {inv.name}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                {inv.quantity} shares • Avg: ₹{inv.avgPrice} • LTP: ₹{inv.currentPrice || inv.avgPrice}
+                              </p>
+                              {hasDayChange && (
+                                <p className={`text-[10px] font-bold mt-0.5 ${isDayPositive ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                                  1D: {isDayPositive ? '+' : ''}₹{inv.dayChange} ({isDayPositive ? '+' : ''}{inv.dayChangePercent?.toFixed(2)}%)
+                                </p>
+                              )}
+                            </div>
+
+                            <div className="text-right">
+                              <div className="text-xs font-black text-slate-900 dark:text-slate-100">{formatINR(curVal)}</div>
+                              <span className={`text-[10px] font-bold ${pnl >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                                {pnl >= 0 ? '+' : ''}{formatINR(pnl)} ({pnlPct.toFixed(1)}%)
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             {/* Sub-Allocations Section */}
             <div className="space-y-3 p-4 rounded-3xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800">
               <div className="flex items-center justify-between">
@@ -546,23 +899,30 @@ export function AccountsScreen() {
 
             {/* Related IPO Applications */}
             <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-                  Linked IPO Applications
-                </h3>
-                <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">
-                  {applications.filter((a) => a.accountId === selectedAccount.id || a.dematAccountId === selectedAccount.id).length} Active
-                </span>
-              </div>
+              {(() => {
+                const linkedApps = applications.filter(
+                  (a) =>
+                    (a.accountId === selectedAccount.id || a.dematAccountId === selectedAccount.id) &&
+                    isBlockedOrAllottedApp(a)
+                );
 
-              {applications.filter((a) => a.accountId === selectedAccount.id || a.dematAccountId === selectedAccount.id).length === 0 ? (
-                <p className="text-xs text-slate-400 dark:text-slate-500 p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 text-center">
-                  No IPO applications currently linked to this {selectedAccount.type === 'demat' ? 'Demat' : 'Bank'} account.
-                </p>
-              ) : (
-                applications
-                  .filter((a) => a.accountId === selectedAccount.id || a.dematAccountId === selectedAccount.id)
-                  .map((app) => {
+                return (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                        Linked IPO Applications
+                      </h3>
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">
+                        {linkedApps.length} Active / Allotted
+                      </span>
+                    </div>
+
+                    {linkedApps.length === 0 ? (
+                      <p className="text-xs text-slate-400 dark:text-slate-500 p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 text-center">
+                        No active blocked or allotted IPO applications linked to this {selectedAccount.type === 'demat' ? 'Demat' : 'Bank'} account.
+                      </p>
+                    ) : (
+                      linkedApps.map((app) => {
                     const isBankSource = app.accountId === selectedAccount.id;
                     const isDematBeneficiary = app.dematAccountId === selectedAccount.id;
 
@@ -609,11 +969,34 @@ export function AccountsScreen() {
                       </div>
                     );
                   })
-              )}
-            </div>
+                )}
+              </>
+            );
+          })()}
+        </div>
           </div>
         )}
       </BottomSheet>
+
+      {/* Demat Screenshot Scanner Modal */}
+      <DematScreenshotScannerModal
+        isOpen={isScannerOpen}
+        onClose={() => setIsScannerOpen(false)}
+        defaultAccountId={selectedAccount?.id}
+      />
+
+      {/* Delete Account Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={isDeleteDialogOpen}
+        onClose={() => setIsDeleteDialogOpen(false)}
+        onConfirm={handleConfirmDeleteAccount}
+        title={`Delete ${selectedAccount?.name}?`}
+        message={`Are you sure you want to delete ${selectedAccount?.name}? All linked transactions will also be permanently cleared.`}
+        confirmText="Delete Account"
+        cancelText="Cancel"
+        variant="danger"
+        icon="trash"
+      />
     </div>
   );
 }

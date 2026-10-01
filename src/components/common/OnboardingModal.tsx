@@ -58,12 +58,12 @@ export function OnboardingModal() {
   const slide = slides[currentSlide];
 
   const content = (
-    <div className="fixed inset-0 z-[999999] bg-white flex flex-col justify-between p-6 max-w-md mx-auto shadow-2xl">
+    <div className="fixed inset-0 z-[999999] bg-white/95 dark:bg-[#070b14]/95 backdrop-blur-3xl flex flex-col justify-between p-6 max-w-md mx-auto shadow-2xl transition-colors">
       {/* Skip Button */}
       <div className="flex justify-end pt-4">
         <button
           onClick={completeOnboarding}
-          className="text-xs text-slate-500 hover:text-slate-800 font-medium px-3.5 py-1.5 rounded-full bg-slate-100 border border-slate-200"
+          className="text-xs text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 font-medium px-3.5 py-1.5 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 cursor-pointer"
         >
           Skip
         </button>
@@ -71,18 +71,18 @@ export function OnboardingModal() {
 
       {/* Main Slide Content */}
       <div className="flex flex-col items-center text-center px-4 space-y-6">
-        <div className="w-24 h-24 rounded-3xl bg-slate-50 border border-slate-200/90 flex items-center justify-center shadow-sm relative">
+        <div className="w-24 h-24 rounded-3xl ios-glass-card flex items-center justify-center shadow-sm relative">
           <div className="absolute inset-0 bg-emerald-500/5 rounded-3xl blur-lg" />
           {slide.icon}
         </div>
 
-        <div className="inline-flex items-center space-x-1 px-3 py-1 rounded-full bg-slate-100 border border-slate-200 text-[11px] font-semibold text-slate-700">
+        <div className="inline-flex items-center space-x-1 px-3 py-1 rounded-full ios-glass-pill text-[11px] font-semibold text-slate-700 dark:text-slate-300">
           <span>{slide.badge}</span>
         </div>
 
         <div className="space-y-2.5">
-          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">{slide.title}</h1>
-          <p className="text-sm text-slate-500 leading-relaxed max-w-xs">{slide.description}</p>
+          <h1 className="text-2xl font-extrabold text-slate-900 dark:text-slate-100 tracking-tight">{slide.title}</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed max-w-xs">{slide.description}</p>
         </div>
       </div>
 

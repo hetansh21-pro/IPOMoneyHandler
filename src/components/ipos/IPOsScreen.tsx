@@ -1,12 +1,18 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAppStore } from '@/lib/store/useAppStore';
 import { IPO, IPOStatus } from '@/lib/types/finance';
-import { formatINR, formatDate, formatDateRange, formatTime } from '@/lib/utils/formatters';
-import { getAccountAvailableBalance } from '@/lib/finance/ledger';
+import { formatINR, formatDateRange } from '@/lib/utils/formatters';
+import { getRealtimeIPOTiming, getNowIST } from '@/lib/market/marketHours';
 import { BottomSheet } from '../common/BottomSheet';
+import { CustomDropdown } from '../common/CustomDropdown';
+import { BankLogo } from '../common/SegmentedBar';
 import { MyIPOsScreen } from './MyIPOsScreen';
+import { IPODetailModal } from './IPODetailModal';
+import { SlidingSegmentedTabs } from '../common/SlidingSegmentedTabs';
+import { useBackHandler } from '@/lib/hooks/useBackHandler';
+import { useSwipeGesture } from '@/lib/hooks/useSwipeGesture';
 import {
   TrendingUp,
   RefreshCw,
@@ -16,18 +22,61 @@ import {
   Plus,
   Minus,
   CheckCircle2,
+  Lock,
+  ArrowRight,
+  Briefcase,
+  X,
+  Sparkles,
+  ArrowUpRight,
+  Clock,
+  Activity,
+  ExternalLink,
+  Flame,
 } from 'lucide-react';
+
+export type IpoTimelineGroup = 'CLOSING_TODAY' | 'OPEN' | 'UPCOMING' | 'CLOSED';
+
+export function getIpoTimelineGroup(ipo: IPO, todayStr: string): IpoTimelineGroup {
+  if (ipo.status === 'CLOSED' || ipo.status === 'LISTED') return 'CLOSED';
+  
+  const daysToClose = Math.ceil(
+    (new Date(ipo.closeDate).getTime() - new Date(todayStr).getTime()) / (1000 * 60 * 60 * 24)
+  );
+
+  if (ipo.status === 'OPEN') {
+    if (ipo.closeDate === todayStr || daysToClose <= 0) {
+      return 'CLOSING_TODAY';
+    }
+    return 'OPEN';
+  }
+
+  if (ipo.status === 'UPCOMING') {
+    return 'UPCOMING';
+  }
+
+  return 'CLOSED';
+}
+
+function formatCleanExchange(exchange: string): string {
+  if (!exchange) return 'NSE / BSE';
+  const cleaned = exchange
+    .replace(/\bSME\b/gi, '')
+    .replace(/,\s*/g, ' / ')
+    .replace(/\s*\/\s*/g, ' / ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^\/|\/$/g, '')
+    .trim();
+  return cleaned || 'NSE / BSE';
+}
 
 export function IPOsScreen() {
   const {
     liveIPOs,
     isIPORefreshing,
-    lastIPORefresh,
-    ipoProviderSource,
     fetchLiveIPOs,
     accounts,
     applications,
-    allocations,
     applyForIPO,
     selectedIPODetailId,
     setSelectedIPODetailId,
@@ -39,10 +88,12 @@ export function IPOsScreen() {
   const [activeStatusTab, setActiveStatusTab] = useState<IPOStatus>('OPEN');
   const [selectedCategory, setSelectedCategory] = useState<'ALL' | 'MAINBOARD' | 'SME'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+  const [isTransitioning, setIsTransitioning] = useState(false);
 
   // Application Modal state
   const [applyingIPO, setApplyingIPO] = useState<IPO | null>(null);
-  const [lotCount, setLotCount] = useState(1);
+  const [lotCount, setLotCount] = useState<number>(1);
+  const [lotSize, setLotSize] = useState<number | ''>(1);
   const [useCutoffPrice, setUseCutoffPrice] = useState(true);
   const [customPrice, setCustomPrice] = useState(0);
   const [manualCost, setManualCost] = useState<number | ''>(0);
@@ -52,30 +103,143 @@ export function IPOsScreen() {
   const [applyError, setApplyError] = useState('');
   const [applySuccessMessage, setApplySuccessMessage] = useState('');
 
-  const filteredIPOs = liveIPOs.filter((ipo) => {
-    if (ipo.status !== activeStatusTab) return false;
-    if (selectedCategory !== 'ALL' && ipo.category !== selectedCategory) return false;
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      return (
-        ipo.companyName.toLowerCase().includes(q) ||
-        ipo.symbol.toLowerCase().includes(q) ||
-        ipo.exchange.toLowerCase().includes(q)
-      );
+  useEffect(() => {
+    setIsTransitioning(true);
+    const mainEl = document.querySelector('main');
+    if (mainEl && mainEl.scrollTop > 50) {
+      mainEl.scrollTo({ top: 0, behavior: 'smooth' });
     }
+    const timer = setTimeout(() => {
+      setIsTransitioning(false);
+    }, 320);
+    return () => clearTimeout(timer);
+  }, [activeIpoSubTab]);
+
+  useBackHandler(!!applyingIPO, () => {
+    setApplyingIPO(null);
     return true;
   });
 
-  const handleOpenApplyModal = (ipo: IPO) => {
+  useBackHandler(!!selectedIPODetailId, () => {
+    setSelectedIPODetailId(null);
+    return true;
+  });
+
+  const ist = getNowIST();
+  const todayStr = ist.istDateStr;
+
+  const filteredIPOs = useMemo(() => {
+    const list = liveIPOs.filter((ipo) => {
+      if (activeStatusTab === 'OPEN') {
+        if (ipo.status !== 'OPEN' && ipo.status !== 'UPCOMING') return false;
+
+        const daysToClose = Math.ceil(
+          (new Date(ipo.closeDate).getTime() - new Date(todayStr).getTime()) / (1000 * 60 * 60 * 24)
+        );
+        const daysToOpen = Math.ceil(
+          (new Date(ipo.openDate).getTime() - new Date(todayStr).getTime()) / (1000 * 60 * 60 * 24)
+        );
+
+        if (ipo.status === 'OPEN') {
+          if (daysToClose < 0 || daysToClose > 3) return false;
+        } else if (ipo.status === 'UPCOMING') {
+          if (daysToOpen < 1 || daysToOpen > 3) return false;
+        }
+      } else {
+        if (ipo.status !== 'CLOSED' && ipo.status !== 'LISTED') return false;
+      }
+      if (selectedCategory !== 'ALL' && ipo.category !== selectedCategory) return false;
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        return (
+          ipo.companyName.toLowerCase().includes(q) ||
+          ipo.symbol.toLowerCase().includes(q) ||
+          ipo.exchange.toLowerCase().includes(q)
+        );
+      }
+      return true;
+    });
+
+    if (activeStatusTab === 'OPEN') {
+      const priorityMap: Record<IpoTimelineGroup, number> = {
+        CLOSING_TODAY: 1,
+        OPEN: 2,
+        UPCOMING: 3,
+        CLOSED: 4,
+      };
+
+      return list.sort((a, b) => {
+        const groupA = getIpoTimelineGroup(a, todayStr);
+        const groupB = getIpoTimelineGroup(b, todayStr);
+
+        const prioA = priorityMap[groupA] || 99;
+        const prioB = priorityMap[groupB] || 99;
+
+        if (prioA !== prioB) {
+          return prioA - prioB;
+        }
+
+        if (groupA === 'CLOSING_TODAY') {
+          return (b.gmp || 0) - (a.gmp || 0);
+        }
+
+        if (groupA === 'OPEN') {
+          const timeA = new Date(a.closeDate).getTime();
+          const timeB = new Date(b.closeDate).getTime();
+          if (timeA !== timeB) return timeA - timeB;
+          return (b.gmp || 0) - (a.gmp || 0);
+        }
+
+        if (groupA === 'UPCOMING') {
+          const timeA = new Date(a.openDate).getTime();
+          const timeB = new Date(b.openDate).getTime();
+          if (timeA !== timeB) return timeA - timeB;
+          return (b.gmp || 0) - (a.gmp || 0);
+        }
+
+        return 0;
+      });
+    }
+
+    return list.sort((a, b) => new Date(b.closeDate).getTime() - new Date(a.closeDate).getTime());
+  }, [liveIPOs, activeStatusTab, todayStr, selectedCategory, searchQuery]);
+
+  const openIPOCount = useMemo(() => {
+    return liveIPOs.filter((i) => {
+      if (i.status !== 'OPEN' && i.status !== 'UPCOMING') return false;
+      const daysToClose = Math.ceil(
+        (new Date(i.closeDate).getTime() - new Date(todayStr).getTime()) / (1000 * 60 * 60 * 24)
+      );
+      const daysToOpen = Math.ceil(
+        (new Date(i.openDate).getTime() - new Date(todayStr).getTime()) / (1000 * 60 * 60 * 24)
+      );
+      if (i.status === 'OPEN') return daysToClose >= 0 && daysToClose <= 3;
+      if (i.status === 'UPCOMING') return daysToOpen >= 1 && daysToOpen <= 3;
+      return false;
+    }).length;
+  }, [liveIPOs, todayStr]);
+
+  const closedIPOCount = useMemo(() => {
+    return liveIPOs.filter((i) => i.status === 'CLOSED' || i.status === 'LISTED').length;
+  }, [liveIPOs]);
+
+  const selectedIPO = useMemo(() => {
+    return liveIPOs.find((i) => i.id === selectedIPODetailId || i.symbol === selectedIPODetailId) || null;
+  }, [liveIPOs, selectedIPODetailId]);
+
+  const handleOpenApplyModal = (ipo: IPO, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     const defaultBank = accounts.find((a) => a.type === 'bank') || accounts[0];
     if (!defaultBank) {
       alert('Please add a Bank Account first to record your IPO applications and blocked funds.');
       setQuickActionOpen(true, 'add_account');
       return;
     }
-    const initialCost = ipo.priceHigh * ipo.lotSize;
+    const initialLotSize = ipo.lotSize || 1;
+    const initialCost = ipo.priceHigh * initialLotSize;
     setApplyingIPO(ipo);
     setLotCount(1);
+    setLotSize(initialLotSize);
     setUseCutoffPrice(true);
     setCustomPrice(ipo.priceHigh);
     setManualCost(initialCost);
@@ -86,12 +250,26 @@ export function IPOsScreen() {
     setAppNotes(`Applied for ${ipo.companyName}`);
   };
 
-  const handleLotChange = (newLots: number) => {
+  const handleLotCountChange = (newLots: number) => {
     const safeLots = Math.max(1, newLots);
     setLotCount(safeLots);
     if (applyingIPO) {
       const price = useCutoffPrice ? applyingIPO.priceHigh : (customPrice || applyingIPO.priceHigh);
-      setManualCost(price * applyingIPO.lotSize * safeLots);
+      const safeLotSize = typeof lotSize === 'number' && lotSize > 0 ? lotSize : (applyingIPO.lotSize || 1);
+      setManualCost(price * safeLotSize * safeLots);
+    }
+  };
+
+  const handleLotSizeChange = (newSize: number | '') => {
+    if (newSize === '') {
+      setLotSize('');
+      return;
+    }
+    const safeSize = Math.max(1, newSize);
+    setLotSize(safeSize);
+    if (applyingIPO) {
+      const price = useCutoffPrice ? applyingIPO.priceHigh : (customPrice || applyingIPO.priceHigh);
+      setManualCost(price * safeSize * lotCount);
     }
   };
 
@@ -99,14 +277,16 @@ export function IPOsScreen() {
     setUseCutoffPrice(cutoff);
     if (applyingIPO) {
       const price = cutoff ? applyingIPO.priceHigh : (customPrice || applyingIPO.priceHigh);
-      setManualCost(price * applyingIPO.lotSize * lotCount);
+      const safeLotSize = typeof lotSize === 'number' && lotSize > 0 ? lotSize : (applyingIPO.lotSize || 1);
+      setManualCost(price * safeLotSize * lotCount);
     }
   };
 
   const handleCustomPriceChange = (val: number) => {
     setCustomPrice(val);
     if (applyingIPO) {
-      setManualCost(val * applyingIPO.lotSize * lotCount);
+      const safeLotSize = typeof lotSize === 'number' && lotSize > 0 ? lotSize : (applyingIPO.lotSize || 1);
+      setManualCost(val * safeLotSize * lotCount);
     }
   };
 
@@ -114,11 +294,12 @@ export function IPOsScreen() {
     e.preventDefault();
     if (!applyingIPO) return;
 
+    const safeLotSize = typeof lotSize === 'number' && lotSize > 0 ? lotSize : (applyingIPO.lotSize || 1);
     const finalPrice = useCutoffPrice ? applyingIPO.priceHigh : customPrice;
     const finalAmount =
       typeof manualCost === 'number' && manualCost > 0
         ? manualCost
-        : finalPrice * applyingIPO.lotSize * lotCount;
+        : finalPrice * safeLotSize * lotCount;
 
     const result = applyForIPO({
       ipoId: applyingIPO.id,
@@ -128,7 +309,7 @@ export function IPOsScreen() {
       dematAccountId: selectedDematId || undefined,
       lotsApplied: lotCount,
       applicationPrice: finalPrice,
-      lotSize: applyingIPO.lotSize,
+      lotSize: safeLotSize,
       customTotalAmount: finalAmount,
       notes: appNotes,
     });
@@ -145,432 +326,558 @@ export function IPOsScreen() {
     }
   };
 
-  return (
-    <div className="space-y-4 pb-36 animate-fade-in">
-      {/* Top Navigation: Live Market vs My Applications */}
-      <div className="flex p-1 bg-slate-100/80 dark:bg-slate-800/80 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
-        <button
-          onClick={() => setActiveIpoSubTab('LIVE')}
-          className={`flex-1 py-2.5 rounded-xl text-xs font-extrabold transition-all flex items-center justify-center space-x-1.5 cursor-pointer ${
-            activeIpoSubTab === 'LIVE'
-              ? 'bg-emerald-600 text-white shadow-xs'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-          }`}
-        >
-          <TrendingUp className="w-3.5 h-3.5" />
-          <span>Live Market IPOs</span>
-        </button>
-        <button
-          onClick={() => setActiveIpoSubTab('MY_APPLICATIONS')}
-          className={`flex-1 py-2.5 rounded-xl text-xs font-extrabold transition-all flex items-center justify-center space-x-1.5 cursor-pointer ${
-            activeIpoSubTab === 'MY_APPLICATIONS'
-              ? 'bg-emerald-600 text-white shadow-xs'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-          }`}
-        >
-          <Layers className="w-3.5 h-3.5" />
-          <span>My IPOs ({applications.length})</span>
-        </button>
-      </div>
+  const swipeHandlers = useSwipeGesture({
+    onSwipeLeft: () => {
+      if (activeIpoSubTab === 'LIVE') {
+        setActiveIpoSubTab('MY_APPLICATIONS');
+      }
+    },
+    onSwipeRight: () => {
+      if (activeIpoSubTab === 'MY_APPLICATIONS') {
+        setActiveIpoSubTab('LIVE');
+      }
+    },
+  });
 
-      {activeIpoSubTab === 'MY_APPLICATIONS' ? (
-        <MyIPOsScreen onSwitchToLive={() => setActiveIpoSubTab('LIVE')} />
-      ) : (
-        <>
-          {/* Clean Search & Status Bar in Green Theme */}
-          <div className="space-y-3 bg-white dark:bg-[#0f172a] p-3.5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
-            <div className="flex items-center justify-between gap-2">
-              <div className="relative flex-1">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-2.5" />
-                <input
-                  type="text"
-                  placeholder="Search IPOs by name, symbol..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-7 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 text-xs focus:outline-none focus:border-emerald-600 focus:bg-white dark:focus:bg-slate-900 transition-all font-medium"
-                />
-                {searchQuery && (
-                  <button
-                    onClick={() => setSearchQuery('')}
-                    className="absolute right-2.5 top-2.5 text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 font-bold cursor-pointer"
-                  >
-                    ✕
-                  </button>
-                )}
+  return (
+    <div
+      {...swipeHandlers}
+      className="space-y-4 pb-6 animate-fade-in touch-pan-y flex-1 min-h-full flex flex-col justify-start"
+    >
+      {/* Top Header Mode Navigation */}
+      <SlidingSegmentedTabs
+        tabs={[
+          { id: 'LIVE', label: 'Live Market IPOs', icon: TrendingUp },
+          { id: 'MY_APPLICATIONS', label: 'My Applications', count: applications.length, icon: Layers },
+        ]}
+        activeId={activeIpoSubTab}
+        onChange={(id) => setActiveIpoSubTab(id)}
+        size="md"
+        variant="equal"
+      />
+
+      {/* Dual Pane GPU-Accelerated Carousel Track */}
+      <div className="relative overflow-hidden w-full">
+        <div
+          className={`flex w-[200%] items-start transition-transform duration-300 ease-out will-change-transform ${
+            activeIpoSubTab === 'MY_APPLICATIONS' ? '-translate-x-1/2' : 'translate-x-0'
+          }`}
+        >
+          {/* Pane 1: Live Market IPOs */}
+          <div
+            className={`w-1/2 shrink-0 pr-1.5 space-y-3 transition-opacity duration-200 ${
+              activeIpoSubTab !== 'LIVE' && !isTransitioning
+                ? 'h-0 overflow-hidden invisible pointer-events-none'
+                : 'h-auto opacity-100'
+            }`}
+          >
+            {/* Quick Filter & Search Bar with iOS Frosted Glass */}
+            <div className="space-y-3 ios-glass-card p-3 rounded-3xl">
+              {/* Search Input Row */}
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-2.5" />
+                  <input
+                    type="text"
+                    placeholder="Search IPOs by name or symbol..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-9 pr-8 py-2 rounded-2xl ios-glass-pill text-slate-900 dark:text-slate-100 placeholder-slate-400 text-xs focus:outline-none focus:border-emerald-600 transition-all font-medium"
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                <button
+                  onClick={() => fetchLiveIPOs(true)}
+                  disabled={isIPORefreshing}
+                  className="px-3 py-2 rounded-2xl ios-glass-pill hover:bg-white dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 active:scale-95 transition-all text-xs font-bold shrink-0 flex items-center space-x-1.5 cursor-pointer shadow-xs"
+                  title="Refresh Live Data"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isIPORefreshing ? 'animate-spin text-emerald-600' : ''}`} />
+                  <span className="hidden sm:inline">Refresh</span>
+                </button>
               </div>
 
-              <button
-                onClick={() => fetchLiveIPOs(true)}
-                disabled={isIPORefreshing}
-                className="px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 active:scale-95 transition-all text-xs font-bold shrink-0 flex items-center space-x-1.5 cursor-pointer"
-                title="Refresh Live Data"
+              {/* Quick Filter Pills Row */}
+              <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100 dark:border-slate-800/80">
+                {/* Status Switcher */}
+                <div className="flex-1 max-w-[210px]">
+                  <SlidingSegmentedTabs
+                    tabs={[
+                      { id: 'OPEN', label: `Open (${openIPOCount})` },
+                      { id: 'CLOSED', label: `Closed (${closedIPOCount})` },
+                    ]}
+                    activeId={activeStatusTab}
+                    onChange={(id) => setActiveStatusTab(id)}
+                    size="sm"
+                    variant="equal"
+                  />
+                </div>
+
+                {/* Category Filter */}
+                <div className="flex-1 max-w-[170px]">
+                  <SlidingSegmentedTabs
+                    tabs={[
+                      { id: 'ALL', label: 'ALL' },
+                      { id: 'MAINBOARD', label: 'MAIN' },
+                      { id: 'SME', label: 'SME' },
+                    ]}
+                    activeId={selectedCategory}
+                    onChange={(id) => setSelectedCategory(id)}
+                    size="sm"
+                    variant="equal"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* IPO Cards Feed */}
+            {filteredIPOs.length === 0 ? (
+              <div
+                key={`empty-${activeStatusTab}-${selectedCategory}`}
+                className="p-8 rounded-2xl bg-white dark:bg-[#0f172a] border border-slate-200 dark:border-slate-800 text-center space-y-2 shadow-xs animate-card-slide"
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${isIPORefreshing ? 'animate-spin text-emerald-600' : ''}`} />
-                <span>Refresh</span>
-              </button>
-            </div>
+                <Briefcase className="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto" />
+                <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">
+                  No {activeStatusTab === 'OPEN' ? 'open' : 'closed'} IPOs found
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Try switching filters or searching another keyword.
+                </p>
+              </div>
+            ) : (
+              <div key={`${activeStatusTab}-${selectedCategory}`} className="space-y-3 animate-card-slide">
+                {filteredIPOs.map((ipo, index) => {
+                  const oneLotCost = ipo.minimumInvestment || (ipo.priceHigh * ipo.lotSize);
+                  const cleanExchange = formatCleanExchange(ipo.exchange);
+                  const timing = getRealtimeIPOTiming(ipo);
+                  const isUpcoming = ipo.status === 'UPCOMING';
+                  const isOpen = ipo.status === 'OPEN';
 
-            {/* Segmented Status Tabs in Emerald */}
-            <div className="flex items-center space-x-1 border-b border-slate-100 dark:border-slate-800 pb-1 overflow-x-auto scrollbar-none">
-              {(['OPEN', 'CLOSED'] as IPOStatus[]).map((st) => {
-                const isActive = activeStatusTab === st;
-                const label = st === 'OPEN' ? '🟢 Ongoing / Open' : '🔒 Closed / Past';
-                return (
+                  const currentGroup = getIpoTimelineGroup(ipo, todayStr);
+                  const prevGroup = index > 0 ? getIpoTimelineGroup(filteredIPOs[index - 1], todayStr) : null;
+                  const isNewGroup = activeStatusTab === 'OPEN' && (index === 0 || currentGroup !== prevGroup);
+
+                  const groupHeader = isNewGroup ? {
+                    CLOSING_TODAY: {
+                      title: 'Closing Today',
+                      count: filteredIPOs.filter((i) => getIpoTimelineGroup(i, todayStr) === 'CLOSING_TODAY').length,
+                      icon: <Flame className="w-4 h-4 text-amber-500 animate-pulse shrink-0" />,
+                      color: 'text-amber-700 dark:text-amber-400',
+                      badgeBg: 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800',
+                    },
+                    OPEN: {
+                      title: 'Open for Bidding',
+                      count: filteredIPOs.filter((i) => getIpoTimelineGroup(i, todayStr) === 'OPEN').length,
+                      icon: <Activity className="w-4 h-4 text-emerald-500 shrink-0" />,
+                      color: 'text-emerald-700 dark:text-emerald-400',
+                      badgeBg: 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800',
+                    },
+                    UPCOMING: {
+                      title: 'Opening Tomorrow & Upcoming',
+                      count: filteredIPOs.filter((i) => getIpoTimelineGroup(i, todayStr) === 'UPCOMING').length,
+                      icon: <Clock className="w-4 h-4 text-blue-500 shrink-0" />,
+                      color: 'text-blue-700 dark:text-blue-400',
+                      badgeBg: 'bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300 border-blue-300 dark:border-blue-800',
+                    },
+                    CLOSED: null,
+                  }[currentGroup] : null;
+
+                  return (
+                    <React.Fragment key={ipo.id}>
+                      {groupHeader && (
+                        <div className={`flex items-center justify-between gap-2 px-1 ${index > 0 ? 'pt-4 pb-1' : 'pt-1 pb-1'}`}>
+                          <div className="flex items-center space-x-2 min-w-0">
+                            {groupHeader.icon}
+                            <span className={`text-xs font-black uppercase tracking-wider ${groupHeader.color}`}>
+                              {groupHeader.title}
+                            </span>
+                            <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full border ${groupHeader.badgeBg}`}>
+                              {groupHeader.count}
+                            </span>
+                          </div>
+                          <div className="flex-1 h-px bg-slate-200 dark:bg-slate-800" />
+                        </div>
+                      )}
+
+                      <div
+                        onClick={() => setSelectedIPODetailId(ipo.id)}
+                        style={{ animationDelay: `${Math.min(index * 35, 180)}ms` }}
+                        className={`animate-card-item p-4 rounded-3xl border transition-all space-y-3 cursor-pointer hover:shadow-md active:scale-[0.995] ${
+                          currentGroup === 'CLOSING_TODAY'
+                            ? 'ios-glass-card border-amber-300/80 dark:border-amber-800/80 hover:border-amber-500'
+                            : isUpcoming
+                            ? 'opacity-90 hover:opacity-100 ios-glass-card border-dashed border-slate-300 dark:border-slate-700 hover:border-blue-400'
+                            : isOpen
+                            ? 'ios-glass-card hover:border-emerald-500 dark:hover:border-emerald-500'
+                            : 'ios-glass-card hover:border-slate-400'
+                        }`}
+                      >
+                        {/* Top Row: Title & Subtitle on Left, Real-time Status Badge on Right */}
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="space-y-0.5 min-w-0 flex-1">
+                            <div className="flex items-center space-x-1.5">
+                              <h3 className="text-sm font-black text-slate-900 dark:text-slate-50 tracking-tight leading-snug break-words">
+                                {ipo.companyName}
+                              </h3>
+                            </div>
+                            <div className="flex items-center flex-wrap gap-1 text-[11px] text-slate-400/80 dark:text-slate-500/80 font-medium tracking-tight">
+                              <span className="font-semibold text-slate-500/90 dark:text-slate-400/90">{ipo.symbol}</span>
+                              <span className="opacity-40">•</span>
+                              <span>{cleanExchange}</span>
+                              <span className="opacity-40">•</span>
+                              <span
+                                className={`font-black uppercase tracking-wider ${
+                                  ipo.category === 'SME'
+                                    ? 'text-amber-600/90 dark:text-amber-400/90'
+                                    : 'text-blue-600/90 dark:text-blue-400/90'
+                                }`}
+                              >
+                                {ipo.category === 'SME' ? 'SME' : 'MAIN'}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="shrink-0">
+                            {isUpcoming ? (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-400 border border-blue-200 dark:border-blue-800/80 shadow-2xs">
+                                <Clock className="w-3 h-3 text-blue-500 shrink-0" />
+                                <span>{timing.badgeText}</span>
+                              </span>
+                            ) : isOpen ? (
+                              <span
+                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold shadow-2xs ${
+                                  timing.badgeVariant === 'amber'
+                                    ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400 border border-amber-200 dark:border-amber-800/80'
+                                    : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/80'
+                                }`}
+                              >
+                                <span
+                                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                                    timing.badgeVariant === 'amber' ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500 animate-pulse'
+                                  }`}
+                                />
+                                <span>{timing.badgeText}</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+                                <Lock className="w-3 h-3 text-slate-400 shrink-0" />
+                                <span>{timing.badgeText || 'Closed'}</span>
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Central Specs Bar: Price, Lot & Min Investment */}
+                        <div className="p-3 rounded-xl bg-slate-50/90 dark:bg-slate-900/70 border border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-3">
+                          <div>
+                            <span className="text-[10px] text-slate-400 dark:text-slate-500 uppercase font-bold tracking-wider block">
+                              Price Band
+                            </span>
+                            <div className="font-extrabold text-slate-800 dark:text-slate-200 text-xs mt-0.5">
+                              {ipo.priceLow === ipo.priceHigh ? `₹${ipo.priceHigh}` : `₹${ipo.priceLow} – ₹${ipo.priceHigh}`}
+                              <span className="text-slate-400 dark:text-slate-500 font-medium text-[11px] ml-1.5">
+                                ({ipo.lotSize} Qty.)
+                              </span>
+                            </div>
+                          </div>
+
+                          {ipo.gmp ? (
+                            <div className="text-center">
+                              <span className="text-[10px] text-slate-400 dark:text-slate-500 uppercase font-bold tracking-wider block">
+                                Est. GMP
+                              </span>
+                              <div className="font-extrabold text-emerald-600 dark:text-emerald-400 text-xs mt-0.5 flex items-center space-x-0.5">
+                                <ArrowUpRight className="w-3.5 h-3.5 stroke-[2.5]" />
+                                <span>+₹{ipo.gmp}</span>
+                                {ipo.gmpPercent ? (
+                                  <span className="text-[10px] font-bold">({ipo.gmpPercent.toFixed(0)}%)</span>
+                                ) : null}
+                              </div>
+                            </div>
+                          ) : null}
+
+                          <div className="text-right">
+                            <span className="text-[10px] text-slate-400 dark:text-slate-500 uppercase font-bold tracking-wider block">
+                              Min Investment
+                            </span>
+                            <div className="font-extrabold text-slate-900 dark:text-slate-100 text-xs mt-0.5">
+                              {formatINR(oneLotCost)}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Bottom Row: Dates, Actions & Apply */}
+                        <div className="flex items-center justify-between pt-0.5">
+                          <div className="flex items-center space-x-1.5 text-xs text-slate-500 dark:text-slate-400 font-medium">
+                            <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                            <span>{formatDateRange(ipo.openDate, ipo.closeDate)}</span>
+                          </div>
+
+                          <div className="flex items-center space-x-2">
+                            {isOpen ? (
+                              <button
+                                onClick={(e) => handleOpenApplyModal(ipo, e)}
+                                className="px-4 py-1.5 rounded-xl bg-[#059669] hover:bg-[#047857] active:bg-[#065f46] text-white text-xs font-bold shadow-sm shadow-[#059669]/30 active:scale-95 transition-all flex items-center space-x-1 cursor-pointer"
+                              >
+                                <span>Apply</span>
+                                <ArrowRight className="w-3.5 h-3.5" />
+                              </button>
+                            ) : isUpcoming ? (
+                              <button
+                                onClick={(e) => handleOpenApplyModal(ipo, e)}
+                                className="px-3.5 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 border border-blue-200 dark:border-blue-800/80 text-blue-700 dark:text-blue-300 text-xs font-bold active:scale-95 transition-all flex items-center space-x-1 cursor-pointer"
+                              >
+                                <span>Pre-Apply</span>
+                              </button>
+                            ) : (
+                              <span className="text-xs text-slate-400 dark:text-slate-500 font-semibold px-2">Closed</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </React.Fragment>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Pane 2: My Applications */}
+          <div
+            className={`w-1/2 shrink-0 pl-1.5 transition-opacity duration-200 ${
+              activeIpoSubTab !== 'MY_APPLICATIONS' && !isTransitioning
+                ? 'h-0 overflow-hidden invisible pointer-events-none'
+                : 'h-auto opacity-100'
+            }`}
+          >
+            <MyIPOsScreen onSwitchToLive={() => setActiveIpoSubTab('LIVE')} />
+          </div>
+        </div>
+      </div>
+
+      {/* IPODetailModal */}
+      <IPODetailModal
+        ipo={selectedIPO}
+        isOpen={!!selectedIPO}
+        onClose={() => setSelectedIPODetailId(null)}
+        onApply={(ipo) => handleOpenApplyModal(ipo)}
+      />
+
+      {/* Apply IPO BottomSheet Modal */}
+      <BottomSheet
+        isOpen={!!applyingIPO}
+        onClose={() => setApplyingIPO(null)}
+        title={`Apply: ${applyingIPO?.symbol || 'IPO'}`}
+        subtitle={applyingIPO?.companyName}
+      >
+        {applyingIPO && (
+          <form onSubmit={handleApplySubmit} className="space-y-4">
+            {/* Price Mode */}
+            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Bid Price Mode</span>
+                <div className="flex items-center space-x-1">
                   <button
-                    key={st}
-                    onClick={() => setActiveStatusTab(st)}
-                    className={`px-4 py-1.5 rounded-xl text-xs font-extrabold transition-all shrink-0 cursor-pointer ${
-                      isActive
+                    type="button"
+                    onClick={() => handlePriceModeToggle(true)}
+                    className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      useCutoffPrice
                         ? 'bg-emerald-600 text-white shadow-xs'
-                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                        : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
                     }`}
                   >
-                    {label}
+                    Cut-off (₹{applyingIPO.priceHigh})
                   </button>
-                );
-              })}
-            </div>
-
-            {/* Category Filter */}
-            <div className="flex items-center justify-between text-xs pt-0.5">
-              <span className="text-slate-400 dark:text-slate-500 font-bold text-[11px] uppercase tracking-wider">Issue Type</span>
-              <div className="flex items-center space-x-1.5">
-                {(['ALL', 'MAINBOARD', 'SME'] as const).map((cat) => (
                   <button
-                    key={cat}
-                    onClick={() => setSelectedCategory(cat)}
-                    className={`px-3 py-1 rounded-lg text-[11px] font-extrabold transition-all cursor-pointer ${
-                      selectedCategory === cat
+                    type="button"
+                    onClick={() => handlePriceModeToggle(false)}
+                    className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      !useCutoffPrice
                         ? 'bg-emerald-600 text-white shadow-xs'
-                        : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 bg-slate-100 dark:bg-slate-800'
+                        : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
                     }`}
                   >
-                    {cat}
+                    Custom
+                  </button>
+                </div>
+              </div>
+
+              {!useCutoffPrice && (
+                <div className="relative pt-1">
+                  <span className="absolute left-3 top-3 text-slate-400 font-bold text-xs">₹</span>
+                  <input
+                    type="number"
+                    min={applyingIPO.priceLow}
+                    max={applyingIPO.priceHigh}
+                    value={customPrice}
+                    onChange={(e) => handleCustomPriceChange(parseFloat(e.target.value) || applyingIPO.priceHigh)}
+                    className="w-full pl-7 pr-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-xs font-bold"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Shares per lot input */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                Shares per Lot (Qty)
+              </label>
+              <input
+                type="number"
+                min="1"
+                value={lotSize}
+                onChange={(e) => handleLotSizeChange(e.target.value === '' ? '' : parseInt(e.target.value))}
+                className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm font-bold"
+                required
+              />
+            </div>
+
+            {/* Lots Stepper & Chips */}
+            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Number of Lots</span>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                  ({(typeof lotSize === 'number' && lotSize > 0 ? lotSize : applyingIPO.lotSize) * lotCount} total shares)
+                </span>
+              </div>
+
+              <div className="flex items-center space-x-3">
+                <button
+                  type="button"
+                  onClick={() => handleLotCountChange(lotCount - 1)}
+                  className="w-10 h-10 rounded-xl bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 hover:bg-slate-100 text-slate-900 dark:text-slate-100 flex items-center justify-center font-bold active:scale-95 shadow-xs cursor-pointer"
+                >
+                  <Minus className="w-4 h-4" />
+                </button>
+                <input
+                  type="number"
+                  min="1"
+                  value={lotCount}
+                  onChange={(e) => handleLotCountChange(parseInt(e.target.value) || 1)}
+                  className="flex-1 text-center py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 font-black text-base text-slate-900 dark:text-slate-100 shadow-inner"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleLotCountChange(lotCount + 1)}
+                  className="w-10 h-10 rounded-xl bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 hover:bg-slate-100 text-slate-900 dark:text-slate-100 flex items-center justify-center font-bold active:scale-95 shadow-xs cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="flex items-center space-x-1.5 pt-1">
+                {[1, 2, 3, 5, 10].map((num) => (
+                  <button
+                    type="button"
+                    key={num}
+                    onClick={() => handleLotCountChange(num)}
+                    className={`flex-1 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      lotCount === num
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100'
+                    }`}
+                  >
+                    {num}L
                   </button>
                 ))}
               </div>
             </div>
-          </div>
 
-          {/* Spacious & Clean Live IPO Cards List */}
-          {filteredIPOs.length === 0 ? (
-            <div className="p-8 rounded-2xl bg-white dark:bg-[#0f172a] border border-slate-200 dark:border-slate-800 text-center space-y-2 shadow-xs">
-              <TrendingUp className="w-10 h-10 text-slate-300 dark:text-slate-600 mx-auto" />
-              <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">No {activeStatusTab.toLowerCase()} IPOs found</h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Try switching status tabs or search for another company.</p>
+            {/* Total Payable Amount */}
+            <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 flex items-center justify-between">
+              <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300">Total Block Amount</span>
+              <span className="text-base font-black text-emerald-700 dark:text-emerald-300">
+                {formatINR(typeof manualCost === 'number' ? manualCost : 0)}
+              </span>
             </div>
-          ) : (
-            <div className="space-y-3">
-              {filteredIPOs.map((ipo) => {
-                const oneLotCost = ipo.minimumInvestment || (ipo.priceHigh * ipo.lotSize);
 
-                return (
-                  <div
-                    key={ipo.id}
-                    className="p-4 rounded-2xl bg-white dark:bg-[#0f172a] border border-slate-200/90 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-emerald-600 active:scale-[0.99] transition-all shadow-xs hover:shadow-md space-y-3"
-                  >
-                    {/* Header Row: Company Title + Badges */}
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="space-y-0.5 flex-1 min-w-0">
-                        <div className="flex items-center flex-wrap gap-1.5">
-                          <h3 className="text-sm font-black text-slate-900 dark:text-slate-100 leading-snug break-words">
-                            {ipo.companyName}
-                          </h3>
-                          <span
-                            className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold border shrink-0 ${
-                              ipo.category === 'SME'
-                                ? 'bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800'
-                                : 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
-                            }`}
-                          >
-                            {ipo.category}
-                          </span>
-                        </div>
-                        <div className="flex items-center space-x-1.5 text-xs text-slate-500 dark:text-slate-400 font-medium">
-                          <span className="font-bold text-slate-700 dark:text-slate-300">{ipo.symbol}</span>
-                          <span>•</span>
-                          <span>{ipo.exchange}</span>
-                        </div>
-                      </div>
-
-                      <span
-                        className={`px-2.5 py-1 rounded-xl text-[10px] font-extrabold border shrink-0 ${
-                          ipo.status === 'OPEN'
-                            ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800 shadow-2xs'
-                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'
-                        }`}
-                      >
-                        {ipo.status === 'OPEN' ? '🟢 Open Now' : '🔒 Closed'}
-                      </span>
-                    </div>
-
-                    {/* 3-Column Metrics Grid */}
-                    <div className="grid grid-cols-3 gap-2 py-2 px-3 rounded-xl bg-slate-50/80 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 text-xs">
-                      <div>
-                        <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wide block">Price Band</span>
-                        <span className="font-extrabold text-slate-800 dark:text-slate-200 text-xs mt-0.5 block">
-                          {ipo.priceLow === ipo.priceHigh ? `₹${ipo.priceHigh}` : `₹${ipo.priceLow} – ₹${ipo.priceHigh}`}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wide block">Lot Size</span>
-                        <span className="font-extrabold text-slate-800 dark:text-slate-200 text-xs mt-0.5 block">
-                          {ipo.lotSize} shares
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wide block">
-                          Timeline
-                        </span>
-                        <span className="font-bold text-slate-800 dark:text-slate-200 text-xs mt-0.5 block truncate">
-                          {formatDateRange(ipo.openDate, ipo.closeDate)}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Bottom Action Row */}
-                    <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800">
-                      <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-                        Min. 1 Lot = <span className="font-extrabold text-slate-900 dark:text-slate-100">{ipo.lotSize} Shares</span>
-                      </div>
-
-                      <button
-                        onClick={() => handleOpenApplyModal(ipo)}
-                        className={`px-3.5 py-2 rounded-xl active:scale-95 text-white shadow-md transition-all flex items-center space-x-2 shrink-0 cursor-pointer group ${
-                          ipo.status === 'OPEN'
-                            ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/25'
-                            : 'bg-slate-700 hover:bg-slate-600 shadow-slate-700/25'
-                        }`}
-                      >
-                        <span className="text-xs font-black text-white">{formatINR(oneLotCost)}</span>
-                        <div className="w-px h-4 bg-white/30" />
-                        <span className={`text-[11px] font-black px-2 py-0.5 rounded-lg shadow-2xs transition-colors flex items-center space-x-0.5 ${
-                          ipo.status === 'OPEN'
-                            ? 'bg-white text-emerald-700 group-hover:bg-emerald-50'
-                            : 'bg-white text-slate-800'
-                        }`}>
-                          <span>{ipo.status === 'OPEN' ? 'Apply' : 'Record'}</span>
-                          <span>+</span>
-                        </span>
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Apply Modal with Direct Manual Cost Editing */}
-          <BottomSheet
-            isOpen={!!applyingIPO}
-            onClose={() => setApplyingIPO(null)}
-            title={`Apply: ${applyingIPO?.companyName}`}
-            subtitle={`${applyingIPO?.symbol} • ${applyingIPO?.category} Issue`}
-          >
-            {applyingIPO && (
-              <form onSubmit={handleApplySubmit} className="space-y-4">
-                {applySuccessMessage && (
-                  <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 text-xs flex items-center space-x-2 font-bold">
-                    <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-emerald-600 dark:text-emerald-400" />
-                    <span>{applySuccessMessage}</span>
-                  </div>
-                )}
-
-                {/* Issue Details Breakdown Header */}
-                <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 grid grid-cols-2 gap-2 text-xs">
-                  <div>
-                    <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase block">Issue Price Band</span>
-                    <span className="font-extrabold text-slate-900 dark:text-slate-100 text-xs">
-                      {applyingIPO.priceLow === applyingIPO.priceHigh
-                        ? `₹${applyingIPO.priceHigh.toLocaleString('en-IN')}`
-                        : `₹${applyingIPO.priceLow.toLocaleString('en-IN')} – ₹${applyingIPO.priceHigh.toLocaleString('en-IN')}`}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase block">Lot Size</span>
-                    <span className="font-extrabold text-slate-900 dark:text-slate-100 text-xs">
-                      {applyingIPO.lotSize.toLocaleString('en-IN')} shares / lot
-                    </span>
-                  </div>
-                </div>
-
-                {/* 1. Direct Editable Application Cost */}
-                <div className="p-4 rounded-3xl bg-emerald-50/70 dark:bg-emerald-950/40 border-2 border-emerald-300 dark:border-emerald-700 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-extrabold text-emerald-950 dark:text-emerald-300 uppercase tracking-wider">
-                      Application Cost (₹)
-                    </label>
-                    <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-bold">
-                      Directly Editable
-                    </span>
-                  </div>
-
-                  <div className="relative">
-                    <span className="absolute left-3.5 top-3 text-lg font-black text-emerald-700 dark:text-emerald-400">₹</span>
-                    <input
-                      type="number"
-                      inputMode="decimal"
-                      value={manualCost}
-                      onChange={(e) =>
-                        setManualCost(e.target.value === '' ? '' : parseFloat(e.target.value) || 0)
-                      }
-                      className="w-full pl-8 pr-4 py-2.5 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-700 text-slate-900 dark:text-slate-100 text-xl font-black focus:outline-none focus:border-emerald-600 shadow-inner"
-                      placeholder="Enter exact cost"
-                      required
+            {/* Account Selectors */}
+            <CustomDropdown
+              label="Bank Account (Block Funds)"
+              value={selectedBankId}
+              onChange={(val) => setSelectedBankId(val)}
+              themeVariant="emerald"
+              options={accounts
+                .filter((a) => a.type === 'bank')
+                .map((acc) => ({
+                  value: acc.id,
+                  label: acc.name,
+                  subLabel: `Available: ${formatINR(acc.balance)}`,
+                  icon: (
+                    <BankLogo
+                      name={acc.name}
+                      type={acc.type}
+                      color={acc.color}
+                      size="sm"
+                      className="w-4 h-4 rounded-md !p-0.5"
                     />
-                  </div>
+                  ),
+                }))}
+            />
 
-                  <p className="text-[10px] text-emerald-800 dark:text-emerald-400 font-medium">
-                    This exact amount will be tracked as blocked funds in your selected bank account.
-                  </p>
-                </div>
-
-                {/* 2. Lot Multiplier Controls */}
-                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Number of Lots</span>
-                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                      ({applyingIPO.lotSize} shares/lot)
-                    </span>
-                  </div>
-
-                  <div className="flex items-center space-x-3">
-                    <button
-                      type="button"
-                      onClick={() => handleLotChange(lotCount - 1)}
-                      className="w-11 h-11 rounded-2xl bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-600 text-slate-900 dark:text-slate-100 flex items-center justify-center font-bold active:scale-95 shadow-xs cursor-pointer"
-                    >
-                      <Minus className="w-4 h-4" />
-                    </button>
-                    <div className="flex-1 text-center py-2 rounded-2xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 font-black text-base text-slate-900 dark:text-slate-100 shadow-inner">
-                      {lotCount} {lotCount === 1 ? 'Lot' : 'Lots'}
-                      <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium block">
-                        ({lotCount * applyingIPO.lotSize} total shares)
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleLotChange(lotCount + 1)}
-                      className="w-11 h-11 rounded-2xl bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-600 text-slate-900 dark:text-slate-100 flex items-center justify-center font-bold active:scale-95 shadow-xs cursor-pointer"
-                    >
-                      <Plus className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  {/* Quick Lot Selection Chips */}
-                  <div className="flex items-center space-x-1.5 pt-1">
-                    {[1, 2, 3, 5, 10].map((num) => (
-                      <button
-                        type="button"
-                        key={num}
-                        onClick={() => handleLotChange(num)}
-                        className={`flex-1 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                          lotCount === num
-                            ? 'bg-emerald-600 text-white shadow-xs'
-                            : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
-                        }`}
-                      >
-                        {num}L
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* 3. Price Mode Option */}
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Bid Price per Share</label>
-                    <button
-                      type="button"
-                      onClick={() => handlePriceModeToggle(!useCutoffPrice)}
-                      className={`text-[11px] font-bold cursor-pointer ${
-                        useCutoffPrice ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'
-                      }`}
-                    >
-                      {useCutoffPrice ? '✓ Cut-off Price' : 'Custom Price'}
-                    </button>
-                  </div>
-
-                  {useCutoffPrice ? (
-                    <div className="w-full px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 font-bold text-xs flex justify-between items-center">
-                      <span>Cut-off Price (Cap)</span>
-                      <span className="text-emerald-700 dark:text-emerald-400 font-black">₹{applyingIPO.priceHigh}</span>
-                    </div>
-                  ) : (
-                    <input
-                      type="number"
-                      inputMode="decimal"
-                      value={customPrice || ''}
-                      onChange={(e) => handleCustomPriceChange(parseFloat(e.target.value) || 0)}
-                      className="w-full px-4 py-2.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm font-bold focus:outline-none focus:border-emerald-600"
-                      placeholder="Enter bid price"
-                    />
-                  )}
-                </div>
-
-                {/* 4. Bank Account Selection */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Bank Account (for ASBA / UPI Mandate Block)
-                  </label>
-                  <select
-                    value={selectedBankId}
-                    onChange={(e) => setSelectedBankId(e.target.value)}
-                    className="w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-xs font-semibold focus:outline-none focus:border-emerald-600"
-                    required
-                  >
-                    {accounts
-                      .filter((a) => a.type === 'bank' || a.type === 'cash' || a.type === 'wallet')
-                      .map((acc) => {
-                        const avail = getAccountAvailableBalance(acc, applications, allocations);
-                        return (
-                          <option key={acc.id} value={acc.id}>
-                            🏦 {acc.name} (Avail: {formatINR(avail)})
-                          </option>
-                        );
-                      })}
-                  </select>
-                </div>
-
-                {/* 5. Demat Account Selection */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Demat Account (for Share Allotment Credit)
-                  </label>
-                  <select
-                    value={selectedDematId}
-                    onChange={(e) => setSelectedDematId(e.target.value)}
-                    className="w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-xs font-semibold focus:outline-none focus:border-emerald-600"
-                  >
-                    <option value="">None / Manual Record</option>
-                    {accounts
-                      .filter((a) => a.type === 'demat' || a.type === 'investment')
-                      .map((acc) => (
-                        <option key={acc.id} value={acc.id}>
-                          📊 {acc.name}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-
-                {applyError && (
-                  <div className="p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-semibold">
-                    {applyError}
-                  </div>
-                )}
-
-                {/* Confirm Application Button */}
-                <button
-                  type="submit"
-                  className="w-full py-3.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-sm shadow-md shadow-emerald-600/20 active:scale-[0.99] transition-all cursor-pointer"
-                >
-                  Confirm & Block {typeof manualCost === 'number' ? formatINR(manualCost) : 'Funds'}
-                </button>
-              </form>
+            {accounts.some((a) => a.type === 'demat') && (
+              <CustomDropdown
+                label="Demat Account (For Allotment)"
+                value={selectedDematId}
+                onChange={(val) => setSelectedDematId(val)}
+                themeVariant="emerald"
+                options={accounts
+                  .filter((a) => a.type === 'demat')
+                  .map((acc) => ({
+                    value: acc.id,
+                    label: acc.name,
+                    icon: (
+                      <BankLogo
+                        name={acc.name}
+                        type={acc.type}
+                        color={acc.color}
+                        size="sm"
+                        className="w-4 h-4 rounded-md !p-0.5"
+                      />
+                    ),
+                  }))}
+              />
             )}
-          </BottomSheet>
-        </>
-      )}
+
+            {applyError && (
+              <div className="p-3 rounded-xl bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-xs font-semibold">
+                {applyError}
+              </div>
+            )}
+
+            {applySuccessMessage && (
+              <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-xs font-semibold flex items-center space-x-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                <span>{applySuccessMessage}</span>
+              </div>
+            )}
+
+            <div className="flex space-x-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setApplyingIPO(null)}
+                className="w-1/3 py-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold text-xs cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="flex-1 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs shadow-md shadow-emerald-600/30 active:scale-95 transition-all cursor-pointer"
+              >
+                Confirm & Block Funds
+              </button>
+            </div>
+          </form>
+        )}
+      </BottomSheet>
     </div>
   );
 }

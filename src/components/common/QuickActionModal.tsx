@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { useAppStore } from '@/lib/store/useAppStore';
 import { BottomSheet } from './BottomSheet';
+import { CustomDropdown } from './CustomDropdown';
 import {
   PlusCircle,
   MinusCircle,
@@ -10,11 +11,16 @@ import {
   Building2,
   TrendingUp,
   LineChart,
+  Camera,
 } from 'lucide-react';
 import { AccountType } from '@/lib/types/finance';
 import { formatINR } from '@/lib/utils/formatters';
 import { getAccountAvailableBalance, getAccountIPOBlockedAmount } from '@/lib/finance/ledger';
 import { BankLogo } from './SegmentedBar';
+import { fetchLiveStockQuote } from '@/lib/market/priceFetcher';
+import { Zap, Loader2 } from 'lucide-react';
+import { DematScreenshotScannerModal } from '../investments/DematScreenshotScannerModal';
+import { useBackHandler } from '@/lib/hooks/useBackHandler';
 
 export function QuickActionModal() {
   const {
@@ -31,6 +37,7 @@ export function QuickActionModal() {
     addAccount,
     addInvestment,
     setActiveTab,
+    activeMemberId,
   } = useAppStore();
 
   const [activeAction, setActiveAction] = useState<
@@ -58,7 +65,7 @@ export function QuickActionModal() {
       setDescriptionInput('');
       setFormError('');
     }
-  }, [quickActionOpen, quickActionType, quickActionAccountId]);
+  }, [quickActionOpen, quickActionType, quickActionAccountId, accounts, selectedAccountId]);
 
   // Add Account form
   const [accName, setAccName] = useState('');
@@ -67,12 +74,58 @@ export function QuickActionModal() {
   const [accInvestedAmount, setAccInvestedAmount] = useState('');
   const [accNotes, setAccNotes] = useState('');
 
+  const dematAccounts = accounts.filter((a) => a.type === 'demat' || a.type === 'investment');
+
   // Add Investment form
   const [invSymbol, setInvSymbol] = useState('');
   const [invName, setInvName] = useState('');
   const [invQty, setInvQty] = useState('');
   const [invAvgPrice, setInvAvgPrice] = useState('');
   const [invCurPrice, setInvCurPrice] = useState('');
+  const [invAccountId, setInvAccountId] = useState(dematAccounts[0]?.id || '');
+  const [isFetchingLtp, setIsFetchingLtp] = useState(false);
+  const [ltpFeedback, setLtpFeedback] = useState<string | null>(null);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+
+  // Back Navigation Handlers
+  useBackHandler(isScannerOpen, () => {
+    setIsScannerOpen(false);
+    return true;
+  });
+
+  useBackHandler(quickActionOpen, () => {
+    if (activeAction !== 'menu' && quickActionType === 'menu') {
+      setActiveAction('menu');
+      return true;
+    }
+    setQuickActionOpen(false);
+    return true;
+  });
+
+  const handleFetchLtp = async () => {
+    if (!invSymbol.trim()) return;
+    setIsFetchingLtp(true);
+    setLtpFeedback(null);
+    try {
+      const quote = await fetchLiveStockQuote(invSymbol);
+      if (quote && quote.price > 0) {
+        setInvCurPrice(quote.price.toString());
+        if (!invName.trim() && quote.name) {
+          setInvName(quote.name);
+        }
+        if (!invAvgPrice) {
+          setInvAvgPrice(quote.price.toString());
+        }
+        setLtpFeedback(`⚡ Live LTP: ₹${quote.price} (${quote.source || 'NSE'})`);
+      } else {
+        setLtpFeedback('Symbol not found on NSE/BSE. You can type manual price.');
+      }
+    } catch {
+      setLtpFeedback('Could not fetch online. Please enter manual price.');
+    } finally {
+      setIsFetchingLtp(false);
+    }
+  };
 
   const resetForms = () => {
     setActiveAction('menu');
@@ -88,6 +141,7 @@ export function QuickActionModal() {
     setInvQty('');
     setInvAvgPrice('');
     setInvCurPrice('');
+    setInvAccountId(dematAccounts[0]?.id || '');
   };
 
   const handleClose = () => {
@@ -169,6 +223,7 @@ export function QuickActionModal() {
       investedAmount: investedVal,
       currency: 'INR',
       notes: accNotes.trim() || undefined,
+      memberId: activeMemberId === 'all' ? 'self' : activeMemberId,
     });
     handleClose();
   };
@@ -189,14 +244,17 @@ export function QuickActionModal() {
       quantity: qty,
       avgPrice: avgP,
       currentPrice: curP,
+      accountId: invAccountId || undefined,
+      memberId: activeMemberId === 'all' ? 'self' : activeMemberId,
     });
     handleClose();
   };
 
   return (
-    <BottomSheet
-      isOpen={quickActionOpen}
-      onClose={handleClose}
+    <>
+      <BottomSheet
+        isOpen={quickActionOpen}
+        onClose={handleClose}
       title={
         activeAction === 'menu'
           ? 'Quick Actions'
@@ -282,26 +340,46 @@ export function QuickActionModal() {
             <span className="text-xs font-bold text-slate-900 dark:text-slate-100">Add Stock</span>
             <span className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">Track holding</span>
           </button>
+
+          <button
+            onClick={() => {
+              handleClose();
+              setIsScannerOpen(true);
+            }}
+            className="flex flex-col items-center justify-center p-4 rounded-3xl bg-emerald-50/50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/80 hover:bg-emerald-100/50 dark:hover:bg-emerald-900/40 transition-all text-center group cursor-pointer col-span-2"
+          >
+            <div className="w-12 h-12 rounded-2xl bg-emerald-100 dark:bg-emerald-900/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mb-2 group-hover:scale-105 transition-transform">
+              <Camera className="w-6 h-6" />
+            </div>
+            <span className="text-xs font-black text-emerald-900 dark:text-emerald-100">Scan Demat Screenshot</span>
+            <span className="text-[10px] text-emerald-700 dark:text-emerald-300 mt-0.5">Auto-extract holdings from Zerodha, Groww, Angel One</span>
+          </button>
         </div>
       )}
 
       {/* Add Money Form */}
       {activeAction === 'add_money' && (
         <form onSubmit={handleAddMoneySubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Select Account</label>
-            <select
-              value={selectedAccountId}
-              onChange={(e) => setSelectedAccountId(e.target.value)}
-              className="w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm focus:outline-none focus:border-emerald-600"
-            >
-              {accounts.map((acc) => (
-                <option key={acc.id} value={acc.id}>
-                  {acc.name} ({formatINR(acc.balance)})
-                </option>
-              ))}
-            </select>
-          </div>
+          <CustomDropdown
+            label="Select Account"
+            value={selectedAccountId}
+            onChange={(val) => setSelectedAccountId(val)}
+            themeVariant="emerald"
+            options={accounts.map((acc) => ({
+              value: acc.id,
+              label: acc.name,
+              subLabel: `Balance: ${formatINR(acc.balance)}`,
+              icon: (
+                <BankLogo
+                  name={acc.name}
+                  type={acc.type}
+                  color={acc.color}
+                  size="sm"
+                  className="w-4 h-4 rounded-md !p-0.5"
+                />
+              ),
+            }))}
+          />
 
           <div>
             <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Amount (₹)</label>
@@ -351,23 +429,29 @@ export function QuickActionModal() {
       {/* Remove Money Form */}
       {activeAction === 'remove_money' && (
         <form onSubmit={handleRemoveMoneySubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Select Account</label>
-            <select
-              value={selectedAccountId}
-              onChange={(e) => setSelectedAccountId(e.target.value)}
-              className="w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm focus:outline-none focus:border-rose-600"
-            >
-              {accounts.map((acc) => {
-                const avail = getAccountAvailableBalance(acc, applications, allocations);
-                return (
-                  <option key={acc.id} value={acc.id}>
-                    {acc.name} (Available: {formatINR(avail)})
-                  </option>
-                );
-              })}
-            </select>
-          </div>
+          <CustomDropdown
+            label="Select Account"
+            value={selectedAccountId}
+            onChange={(val) => setSelectedAccountId(val)}
+            themeVariant="rose"
+            options={accounts.map((acc) => {
+              const avail = getAccountAvailableBalance(acc, applications, allocations);
+              return {
+                value: acc.id,
+                label: acc.name,
+                subLabel: `Available: ${formatINR(avail)}`,
+                icon: (
+                  <BankLogo
+                    name={acc.name}
+                    type={acc.type}
+                    color={acc.color}
+                    size="sm"
+                    className="w-4 h-4 rounded-md !p-0.5"
+                  />
+                ),
+              };
+            })}
+          />
 
           {(() => {
             const acc = accounts.find((a) => a.id === selectedAccountId);
@@ -438,23 +522,29 @@ export function QuickActionModal() {
       {/* Transfer Form */}
       {activeAction === 'transfer' && (
         <form onSubmit={handleTransferSubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">From Account</label>
-            <select
-              value={selectedAccountId}
-              onChange={(e) => setSelectedAccountId(e.target.value)}
-              className="w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm focus:outline-none focus:border-sky-600"
-            >
-              {accounts.map((acc) => {
-                const avail = getAccountAvailableBalance(acc, applications, allocations);
-                return (
-                  <option key={acc.id} value={acc.id}>
-                    {acc.name} (Available: {formatINR(avail)})
-                  </option>
-                );
-              })}
-            </select>
-          </div>
+          <CustomDropdown
+            label="From Account"
+            value={selectedAccountId}
+            onChange={(val) => setSelectedAccountId(val)}
+            themeVariant="sky"
+            options={accounts.map((acc) => {
+              const avail = getAccountAvailableBalance(acc, applications, allocations);
+              return {
+                value: acc.id,
+                label: acc.name,
+                subLabel: `Available: ${formatINR(avail)}`,
+                icon: (
+                  <BankLogo
+                    name={acc.name}
+                    type={acc.type}
+                    color={acc.color}
+                    size="sm"
+                    className="w-4 h-4 rounded-md !p-0.5"
+                  />
+                ),
+              };
+            })}
+          />
 
           {(() => {
             const fromAcc = accounts.find((a) => a.id === selectedAccountId);
@@ -474,20 +564,26 @@ export function QuickActionModal() {
             );
           })()}
 
-          <div>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">To Destination Account</label>
-            <select
-              value={targetAccountId}
-              onChange={(e) => setTargetAccountId(e.target.value)}
-              className="w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-sm focus:outline-none focus:border-sky-600"
-            >
-              {accounts.map((acc) => (
-                <option key={acc.id} value={acc.id}>
-                  {acc.name} ({formatINR(acc.balance)})
-                </option>
-              ))}
-            </select>
-          </div>
+          <CustomDropdown
+            label="To Destination Account"
+            value={targetAccountId}
+            onChange={(val) => setTargetAccountId(val)}
+            themeVariant="sky"
+            options={accounts.map((acc) => ({
+              value: acc.id,
+              label: acc.name,
+              subLabel: `Balance: ${formatINR(acc.balance)}`,
+              icon: (
+                <BankLogo
+                  name={acc.name}
+                  type={acc.type}
+                  color={acc.color}
+                  size="sm"
+                  className="w-4 h-4 rounded-md !p-0.5"
+                />
+              ),
+            }))}
+          />
 
           <div>
             <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Transfer Amount (₹)</label>
@@ -668,15 +764,59 @@ export function QuickActionModal() {
 
       {/* Add Investment Form */}
       {activeAction === 'add_investment' && (
-        <form onSubmit={handleAddInvestmentSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Stock Symbol</label>
+        <div className="space-y-4">
+          {/* Quick Scanner Shortcut Banner */}
+          <div
+            onClick={() => {
+              handleClose();
+              setIsScannerOpen(true);
+            }}
+            className="p-3.5 rounded-2xl bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 flex items-center justify-between cursor-pointer hover:bg-indigo-100/70 dark:hover:bg-indigo-900/40 transition-all group"
+          >
+            <div className="flex items-center space-x-2.5">
+              <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform">
+                <Camera className="w-4 h-4" />
+              </div>
+              <div>
+                <h4 className="text-xs font-black text-indigo-950 dark:text-indigo-200">
+                  Have a Demat Screenshot?
+                </h4>
+                <p className="text-[10px] text-indigo-700 dark:text-indigo-400">
+                  Tap to auto-scan Zerodha, Groww, AngelOne holdings
+                </p>
+              </div>
+            </div>
+            <span className="text-[11px] font-extrabold text-indigo-600 dark:text-indigo-400">Scan Now →</span>
+          </div>
+
+          <form onSubmit={handleAddInvestmentSubmit} className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">Stock Symbol</label>
+                  <button
+                    type="button"
+                    onClick={handleFetchLtp}
+                    disabled={isFetchingLtp || !invSymbol.trim()}
+                    className="text-[10px] font-extrabold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 flex items-center space-x-1 cursor-pointer disabled:opacity-40"
+                    title="Fetch current market price from NSE/BSE"
+                  >
+                  {isFetchingLtp ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <Zap className="w-3 h-3 text-amber-500 fill-amber-500" />
+                  )}
+                  <span>{isFetchingLtp ? 'Fetching...' : 'Fetch LTP'}</span>
+                </button>
+              </div>
               <input
                 type="text"
                 placeholder="e.g. RELIANCE"
                 value={invSymbol}
-                onChange={(e) => setInvSymbol(e.target.value)}
+                onChange={(e) => {
+                  setInvSymbol(e.target.value);
+                  setLtpFeedback(null);
+                }}
                 className="w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-xs uppercase font-bold focus:outline-none focus:border-indigo-600"
                 required
               />
@@ -695,6 +835,12 @@ export function QuickActionModal() {
             </div>
           </div>
 
+          {ltpFeedback && (
+            <div className="px-3 py-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800 text-[11px] font-bold text-indigo-700 dark:text-indigo-300">
+              {ltpFeedback}
+            </div>
+          )}
+
           <div>
             <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Company Name</label>
             <input
@@ -706,6 +852,38 @@ export function QuickActionModal() {
               required
             />
           </div>
+
+          {dematAccounts.length > 0 && (
+            <CustomDropdown
+              label="Demat Account"
+              value={invAccountId}
+              onChange={(val) => setInvAccountId(val)}
+              themeVariant="indigo"
+              placeholder="General Portfolio (No Specific Demat)"
+              options={[
+                {
+                  value: '',
+                  label: 'General Portfolio (No Specific Demat)',
+                  subLabel: 'Do not assign to a specific Demat',
+                },
+                ...dematAccounts.map((d) => ({
+                  value: d.id,
+                  label: d.name,
+                  subLabel: `Funds: ${formatINR(d.balance)} • Invested: ${formatINR(d.investedAmount ?? 0)}`,
+                  badge: d.type.toUpperCase(),
+                  icon: (
+                    <BankLogo
+                      name={d.name}
+                      type="demat"
+                      color={d.color}
+                      size="sm"
+                      className="w-4 h-4 rounded-md !p-0.5"
+                    />
+                  ),
+                })),
+              ]}
+            />
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -733,23 +911,31 @@ export function QuickActionModal() {
             </div>
           </div>
 
-          <div className="flex space-x-3 pt-2">
-            <button
-              type="button"
-              onClick={() => setActiveAction('menu')}
-              className="w-1/3 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-semibold cursor-pointer transition-colors"
-            >
-              Back
-            </button>
-            <button
-              type="submit"
-              className="flex-1 py-3 rounded-2xl bg-indigo-600 text-white font-bold text-xs hover:bg-indigo-500 shadow-sm cursor-pointer"
-            >
-              Save Stock Holding
-            </button>
-          </div>
-        </form>
+            <div className="flex space-x-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setActiveAction('menu')}
+                className="w-1/3 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-semibold cursor-pointer transition-colors"
+              >
+                Back
+              </button>
+              <button
+                type="submit"
+                className="flex-1 py-3 rounded-2xl bg-indigo-600 text-white font-bold text-xs hover:bg-indigo-500 shadow-sm cursor-pointer"
+              >
+                Save Stock Holding
+              </button>
+            </div>
+          </form>
+        </div>
       )}
     </BottomSheet>
+
+    <DematScreenshotScannerModal
+      isOpen={isScannerOpen}
+      onClose={() => setIsScannerOpen(false)}
+      defaultAccountId={invAccountId || selectedAccountId}
+    />
+  </>
   );
 }
